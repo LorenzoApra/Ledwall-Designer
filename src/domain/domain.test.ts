@@ -1,0 +1,165 @@
+import { describe, expect, it } from "vitest";
+import { calculateControllerCapacity } from "./capacity";
+import { createAutomaticPowerLines, calculatePowerLineMetrics } from "./electrical";
+import { createCabinetGrid } from "./layout";
+import {
+  appendCabinetToPortRun,
+  createAutoWiring,
+  removeCabinetFromPortRuns,
+  undoLastCabinetFromPortRun,
+} from "./wiring";
+import {
+  calculateEstimatedProjectWeightKg,
+  calculateSuspensionMetrics,
+  createAutomaticSuspensionPoints,
+} from "./weight";
+import { DEFAULT_LIBRARIES } from "../data/defaultLibraries";
+import { createDefaultProject } from "../data/defaultProject";
+
+describe("motore Ledwall Designer", () => {
+  it("calcola la capacita MCTRL4K a 50 Hz e applica il margine una volta", () => {
+    const project = createDefaultProject();
+    const controller = project.controllers[0];
+    const model = DEFAULT_LIBRARIES.controllers.find((item) => item.id === controller.modelId)!;
+    const nominal = calculateControllerCapacity(model, controller);
+    expect(nominal.portCapacityPixels).toBe(780_000);
+    expect(nominal.totalCapacityPixels).toBe(8_800_000);
+
+    controller.mode.safetyMarginPercent = 10;
+    const withMargin = calculateControllerCapacity(model, controller);
+    expect(withMargin.portCapacityPixels).toBe(702_000);
+    expect(withMargin.totalCapacityPixels).toBe(7_920_000);
+  });
+
+  it("riduce la capacita per bit depth elevato e 3D", () => {
+    const project = createDefaultProject();
+    const controller = project.controllers[0];
+    const model = DEFAULT_LIBRARIES.controllers.find((item) => item.id === controller.modelId)!;
+    controller.mode.bitDepth = 10;
+    expect(calculateControllerCapacity(model, controller).portCapacityPixels).toBe(384_000);
+    controller.mode.threeD = true;
+    expect(calculateControllerCapacity(model, controller).portCapacityPixels).toBe(192_000);
+  });
+
+  it("genera una matrice Yestech con coordinate pixel e fisiche coerenti", () => {
+    const project = createDefaultProject();
+    const model = DEFAULT_LIBRARIES.cabinets[0];
+    const grid = createCabinetGrid(project.screens[0], model, {
+      rows: 8,
+      columns: 5,
+      rotation: 0,
+    });
+    expect(grid).toHaveLength(40);
+    expect(grid.at(-1)).toMatchObject({
+      row: 8,
+      column: 5,
+      pixelX: 512,
+      pixelY: 896,
+      physicalXmm: 2000,
+      physicalYmm: 3500,
+    });
+  });
+
+  it("sceglie il minor numero di porte e conserva tutti i cabinet", () => {
+    const project = createDefaultProject();
+    const model = DEFAULT_LIBRARIES.cabinets[0];
+    const grid = createCabinetGrid(project.screens[0], model, {
+      rows: 8,
+      columns: 10,
+      rotation: 0,
+    });
+    const result = createAutoWiring(
+      project.screens[0],
+      grid,
+      project.controllers[0],
+      DEFAULT_LIBRARIES,
+    );
+    expect(result.runs).toHaveLength(2);
+    expect(result.runs.flatMap((run) => run.cabinetIds)).toHaveLength(80);
+    expect(new Set(result.runs.flatMap((run) => run.cabinetIds)).size).toBe(80);
+  });
+
+  it("costruisce, corregge e scollega un percorso manuale", () => {
+    let runs = appendCabinetToPortRun([], 2, "cabinet-1");
+    runs = appendCabinetToPortRun(runs, 2, "cabinet-2");
+    runs = appendCabinetToPortRun(runs, 2, "cabinet-3");
+    expect(runs[0]).toMatchObject({
+      portNumber: 2,
+      cabinetIds: ["cabinet-1", "cabinet-2", "cabinet-3"],
+    });
+
+    const undone = undoLastCabinetFromPortRun(runs, 2);
+    expect(undone.removedCabinetId).toBe("cabinet-3");
+    expect(undone.nextCabinetId).toBe("cabinet-2");
+    expect(undone.runs[0].cabinetIds).toEqual(["cabinet-1", "cabinet-2"]);
+
+    const removed = removeCabinetFromPortRuns(undone.runs, "cabinet-1");
+    expect(removed[0].cabinetIds).toEqual(["cabinet-2"]);
+  });
+
+  it("sposta un cabinet tra porte senza duplicarlo", () => {
+    let runs = appendCabinetToPortRun([], 1, "cabinet-1");
+    runs = appendCabinetToPortRun(runs, 2, "cabinet-1");
+    expect(runs).toHaveLength(1);
+    expect(runs[0]).toMatchObject({ portNumber: 2, cabinetIds: ["cabinet-1"] });
+  });
+
+  it("distribuisce 40 cabinet su tre linee da 16 A con derating 80%", () => {
+    const project = createDefaultProject();
+    const grid = createCabinetGrid(project.screens[0], DEFAULT_LIBRARIES.cabinets[0], {
+      rows: 8,
+      columns: 5,
+      rotation: 0,
+    });
+    project.cabinets = grid;
+    project.powerLines = createAutomaticPowerLines(
+      grid,
+      DEFAULT_LIBRARIES,
+      project.electrical,
+    );
+    const metrics = calculatePowerLineMetrics(project, DEFAULT_LIBRARIES);
+    expect(metrics).toHaveLength(3);
+    expect(metrics.every((metric) => metric.valid)).toBe(true);
+    expect(metrics.reduce((sum, metric) => sum + metric.line.cabinetIds.length, 0)).toBe(40);
+  });
+
+  it("calcola un punto di sospensione per colonna", () => {
+    const project = createDefaultProject();
+    const screen = project.screens[0];
+    project.cabinets = createCabinetGrid(screen, DEFAULT_LIBRARIES.cabinets[0], {
+      rows: 8,
+      columns: 5,
+      rotation: 0,
+    });
+    screen.suspensionPoints = createAutomaticSuspensionPoints(
+      screen,
+      project.cabinets,
+      DEFAULT_LIBRARIES,
+    );
+    const metrics = calculateSuspensionMetrics(project, DEFAULT_LIBRARIES);
+    expect(metrics).toHaveLength(5);
+    expect(metrics[0].totalWeightKg).toBeCloseTo(70.6, 5);
+  });
+
+  it("mostra il peso stimato anche prima di generare i punti", () => {
+    const project = createDefaultProject();
+    const screen = project.screens[0];
+    const model = DEFAULT_LIBRARIES.cabinets[0];
+    const cabinets = createCabinetGrid(screen, model, {
+      rows: 8,
+      columns: 5,
+      rotation: 0,
+    });
+    project.cabinets = cabinets;
+    screen.cabinetIds = cabinets.map((cabinet) => cabinet.id);
+
+    expect(calculateEstimatedProjectWeightKg(project, DEFAULT_LIBRARIES)).toBeCloseTo(328);
+
+    screen.suspensionPoints = createAutomaticSuspensionPoints(
+      screen,
+      cabinets,
+      DEFAULT_LIBRARIES,
+    );
+    expect(calculateEstimatedProjectWeightKg(project, DEFAULT_LIBRARIES)).toBeCloseTo(353);
+  });
+});
