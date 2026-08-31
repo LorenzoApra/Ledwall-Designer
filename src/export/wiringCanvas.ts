@@ -86,12 +86,17 @@ export function renderWiringCanvas(
       })
       .filter((point): point is { x: number; y: number } => point !== undefined);
     if (points.length === 0) return;
-    context.strokeStyle = run.color;
     context.fillStyle = run.color;
-    context.lineWidth = Math.max(2, 1.5 * scale);
-    context.beginPath();
-    context.moveTo(points[0].x, points[0].y);
-    points.slice(1).forEach((point) => context.lineTo(point.x, point.y));
+    context.lineCap = "round";
+    context.lineJoin = "round";
+    const lineWidth = Math.max(6, 3 * scale);
+    tracePath(context, points);
+    context.strokeStyle = "rgba(255,255,255,0.95)";
+    context.lineWidth = lineWidth + Math.max(4, 2 * scale);
+    context.stroke();
+    tracePath(context, points);
+    context.strokeStyle = run.color;
+    context.lineWidth = lineWidth;
     context.stroke();
     points.slice(1).forEach((point, index) => drawArrow(context, points[index], point, scale));
     drawEndpoint(context, points[0], "#32f54f", mode === "data" ? String(run.number) : `L${run.number}`, scale);
@@ -138,7 +143,7 @@ function drawArrow(
   scale: number,
 ): void {
   const angle = Math.atan2(to.y - from.y, to.x - from.x);
-  const size = Math.max(7, 5 * scale);
+  const size = Math.max(12, 7 * scale);
   const x = from.x + (to.x - from.x) * 0.68;
   const y = from.y + (to.y - from.y) * 0.68;
   context.beginPath();
@@ -146,5 +151,17 @@ function drawArrow(
   context.lineTo(x - size * Math.cos(angle - Math.PI / 6), y - size * Math.sin(angle - Math.PI / 6));
   context.lineTo(x - size * Math.cos(angle + Math.PI / 6), y - size * Math.sin(angle + Math.PI / 6));
   context.closePath();
+  context.strokeStyle = "#ffffff";
+  context.lineWidth = Math.max(2.5, 1.25 * scale);
+  context.stroke();
   context.fill();
+}
+
+function tracePath(
+  context: CanvasRenderingContext2D,
+  points: { x: number; y: number }[],
+): void {
+  context.beginPath();
+  context.moveTo(points[0].x, points[0].y);
+  points.slice(1).forEach((point) => context.lineTo(point.x, point.y));
 }

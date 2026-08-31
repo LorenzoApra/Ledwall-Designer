@@ -21,6 +21,7 @@ import type {
 } from "./domain/types";
 import {
   appendCabinetToPortRun,
+  assignAutomaticBackupPorts,
   createAutoWiring,
   portColor,
   removeCabinetFromPortRuns,
@@ -441,18 +442,17 @@ export default function App() {
     }
     const used = new Set(runs.map((run) => run.portNumber));
     const backupPorts = Array.from({ length: controllerModel.ethernetPorts }, (_, index) => controllerModel.ethernetPorts - index).filter((port) => !used.has(port));
-    runs.forEach((run, index) => {
-      run.backupPortNumber = controller.mode.redundancy ? backupPorts[index] : undefined;
-      run.backupControllerName = controller.mode.redundancy ? `Secondo ${controllerModel.name}: porta ${run.portNumber}` : undefined;
-    });
+    const configuredRuns = controller.mode.redundancy
+      ? assignAutomaticBackupPorts(runs, controllerModel.ethernetPorts, `Secondo ${controllerModel.name}`)
+      : runs;
     const totalPixels = projectStats.activePixels;
     const capacity = calculateControllerCapacity(controllerModel, controller);
     if (totalPixels > capacity.totalCapacityPixels) warnings.push(`Pixel totali ${formatInt(totalPixels)} oltre il limite ${formatInt(capacity.totalCapacityPixels)}.`);
     if (runs.length > controllerModel.ethernetPorts) warnings.push(`Richieste ${runs.length} porte, disponibili ${controllerModel.ethernetPorts}.`);
     if (controller.mode.redundancy && backupPorts.length < runs.length) warnings.push("Porte insufficienti per un backup interno completo; usare il secondo controller.");
-    history.commit((current) => ({ ...current, controllers: current.controllers.map((item, index) => index === 0 ? { ...item, portRuns: runs } : item) }));
+    history.commit((current) => ({ ...current, controllers: current.controllers.map((item, index) => index === 0 ? { ...item, portRuns: configuredRuns } : item) }));
     setManualTracePort(undefined);
-    setStatus(warnings.length ? warnings.at(-1)! : `Cablaggio creato su ${runs.length} porte`);
+    setStatus(warnings.length ? warnings.at(-1)! : `Cablaggio creato su ${configuredRuns.length} porte`);
   }
 
   function assignSelectedCabinet(portNumber?: number): void {
@@ -709,6 +709,13 @@ export default function App() {
       type,
       project.rigging.plateRequirementHeightMm,
     );
+    const manualPlates = selectedScreen.supportPlates.filter((plate) => !plate.automatic);
+    const generatedPlates = plan.plates.filter((candidate) =>
+      !manualPlates.some((manual) =>
+        Math.abs(manual.xMm - candidate.xMm) <= 2 &&
+        Math.abs(manual.yMm - candidate.yMm) <= 2,
+      ),
+    );
     history.commit((current) => ({
       ...current,
       screens: current.screens.map((screen) =>
@@ -717,13 +724,17 @@ export default function App() {
               ...screen,
               supportPlates: [
                 ...screen.supportPlates.filter((plate) => !plate.automatic),
-                ...plan.plates,
+                ...generatedPlates,
               ],
             }
           : screen,
       ),
     }));
-    setStatus(plan.warnings.at(-1) ?? `${plan.plates.length} piastre generate`);
+    const preserved = plan.plates.length - generatedPlates.length;
+    setStatus(
+      `${generatedPlates.length} piastre automatiche generate` +
+      (preserved ? `; ${preserved} giunti già coperti da piastre manuali` : ""),
+    );
   }
 
   function addManualSupportPlate(type: SupportPlateType): void {

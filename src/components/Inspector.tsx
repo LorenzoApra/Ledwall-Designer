@@ -8,6 +8,7 @@ import { parseRcfgFile } from "../domain/rcfg";
 import { calculateProjectTotals } from "../domain/projectMetrics";
 import { calculateFlybarMetrics } from "../domain/flybars";
 import { calculateEstimatedProjectWeightKg, calculateSuspensionMetrics } from "../domain/weight";
+import { assignAutomaticBackupPorts } from "../domain/wiring";
 import type {
   AppLibraries,
   AccessoryModel,
@@ -18,6 +19,7 @@ import type {
   FlybarMode,
   FlybarModel,
   LedwallProject,
+  PortRun,
   Rotation,
   SupportPlateType,
 } from "../domain/types";
@@ -98,10 +100,21 @@ function ProjectPanel({ project, onProjectChange }: InspectorProps) {
   return (
     <>
       <Section title="Identificazione">
-        <Field label="Nome progetto"><input value={project.metadata.projectName} onChange={(event) => updateMetadata("projectName", event.target.value)} /></Field>
+        <Field label="Nome progetto / Evento">
+          <input
+            value={project.metadata.projectName || project.metadata.event}
+            onChange={(event) => onProjectChange((current) => ({
+              ...current,
+              metadata: {
+                ...current.metadata,
+                projectName: event.target.value,
+                event: event.target.value,
+              },
+            }))}
+          />
+        </Field>
         <Field label="Azienda"><input value={project.metadata.company} onChange={(event) => updateMetadata("company", event.target.value)} /></Field>
         <Field label="Cliente"><input value={project.metadata.client} onChange={(event) => updateMetadata("client", event.target.value)} /></Field>
-        <Field label="Evento"><input value={project.metadata.event} onChange={(event) => updateMetadata("event", event.target.value)} /></Field>
         <Field label="Location"><input value={project.metadata.location} onChange={(event) => updateMetadata("location", event.target.value)} /></Field>
         <div className="two-columns">
           <Field label="Autore"><input value={project.metadata.author} onChange={(event) => updateMetadata("author", event.target.value)} /></Field>
@@ -276,11 +289,45 @@ function DataPanel(props: InspectorProps) {
       ? [...selectedPortNumbers][0]
       : undefined;
   const activeTraceRun = controller?.portRuns.find((run) => run.portNumber === props.manualTracePort);
+  const mainPortNumbers = new Set(controller?.portRuns.map((run) => run.portNumber) ?? []);
   const updateController = (patch: Partial<typeof controller>) => {
     if (!controller) return;
     onProjectChange((current) => ({ ...current, controllers: [{ ...controller, ...patch }, ...current.controllers.slice(1)] }));
   };
   const updateMode = (patch: Partial<typeof controller.mode>) => updateController({ mode: { ...controller.mode, ...patch } });
+  const updatePortRun = (runId: string, patch: Partial<PortRun>) => {
+    onProjectChange((current) => ({
+      ...current,
+      controllers: current.controllers.map((item, index) =>
+        index === 0
+          ? {
+              ...item,
+              mode: { ...item.mode, redundancy: true },
+              portRuns: item.portRuns.map((run) => run.id === runId ? { ...run, ...patch } : run),
+            }
+          : item,
+      ),
+    }));
+  };
+  const autoAssignBackups = () => {
+    if (!controller || !model) return;
+    onProjectChange((current) => ({
+      ...current,
+      controllers: current.controllers.map((item, index) =>
+        index === 0
+          ? {
+              ...item,
+              mode: { ...item.mode, redundancy: true },
+              portRuns: assignAutomaticBackupPorts(
+                item.portRuns,
+                model.ethernetPorts,
+                `Secondo ${model.name}`,
+              ),
+            }
+          : item,
+      ),
+    }));
+  };
 
   return (
     <>
@@ -310,7 +357,7 @@ function DataPanel(props: InspectorProps) {
         <Toggle label="HDR" checked={controller?.mode.hdr ?? false} disabled={!model?.capabilities.hdr} onChange={(value) => updateMode({ hdr: value })} />
         <Toggle label="3D" checked={controller?.mode.threeD ?? false} disabled={!model?.capabilities.threeD} onChange={(value) => updateMode({ threeD: value })} />
         <Toggle label="Low latency" checked={controller?.mode.lowLatency ?? false} disabled={!model?.capabilities.lowLatency} onChange={(value) => updateMode({ lowLatency: value })} />
-        <Toggle label="Ridondanza" checked={controller?.mode.redundancy ?? false} disabled={!model?.capabilities.portBackup} onChange={(value) => updateMode({ redundancy: value })} />
+        <Toggle label="Ridondanza" checked={controller?.mode.redundancy ?? false} disabled={!model?.capabilities.portBackup && !model?.capabilities.controllerBackup} onChange={(value) => updateMode({ redundancy: value })} />
         {capacity && (
           <div className="info-grid">
             <Metric label="Per porta" value={`${formatInt(capacity.portCapacityPixels)} px`} />
@@ -385,6 +432,9 @@ function DataPanel(props: InspectorProps) {
       </Section>
 
       <Section title="Porte e backup">
+        <button className="button secondary full" disabled={!controller?.portRuns.length} onClick={autoAssignBackups}>
+          Assegna backup automatici
+        </button>
         <div className="run-list">
           {portMetrics.length === 0 && <p className="empty-copy">Nessuna porta assegnata.</p>}
           {portMetrics.map((metric) => (
@@ -396,8 +446,33 @@ function DataPanel(props: InspectorProps) {
                 const cabinet = project.cabinets.find((item) => item.id === id);
                 return cabinet ? `${cabinet.row},${cabinet.column}` : "?";
               }).join(" → ")}</small>
-              <small>Backup interno: P-{metric.run.backupPortNumber ?? "N/D"}</small>
-              <small>Backup controller: P-{metric.run.portNumber}</small>
+              <div className="two-columns">
+                <Field label="Backup interno">
+                  <select
+                    value={metric.run.backupPortNumber ?? ""}
+                    onChange={(event) => updatePortRun(metric.run.id, {
+                      backupPortNumber: event.target.value ? Number(event.target.value) : undefined,
+                    })}
+                  >
+                    <option value="">Nessuno</option>
+                    {Array.from({ length: model?.ethernetPorts ?? 0 }, (_, index) => index + 1)
+                      .filter((port) =>
+                        port !== metric.run.portNumber &&
+                        (!mainPortNumbers.has(port) || port === metric.run.backupPortNumber),
+                      )
+                      .map((port) => <option key={port} value={port}>P-{port}</option>)}
+                  </select>
+                </Field>
+                <Field label="Backup secondo controller">
+                  <input
+                    value={metric.run.backupControllerName ?? ""}
+                    placeholder={`Controller B: porta ${metric.run.portNumber}`}
+                    onChange={(event) => updatePortRun(metric.run.id, {
+                      backupControllerName: event.target.value || undefined,
+                    })}
+                  />
+                </Field>
+              </div>
               <button className="mini-button full" onClick={() => props.onActivateManualTrace(metric.run.portNumber)}>
                 Modifica percorso
               </button>
@@ -638,7 +713,7 @@ function WeightPanel(props: InspectorProps) {
       <Section title="Piastre di sostegno MG7S">
         <Field
           label="Soglia automatica mm"
-          hint="Il manuale richiede le piastre da 4.000 mm (8 cabinet MG7S) e un rinforzo/consulto tecnico oltre 12 m."
+          hint="Genera una piastra in ogni giunto 2×2 nei primi 4.000 mm dal bordo superiore (8 cabinet MG7S); oltre 12 m serve un rinforzo/consulto tecnico."
         >
           <input type="number" min="0" step="500" value={project.rigging.plateRequirementHeightMm} onChange={(event) => update("plateRequirementHeightMm", Number(event.target.value))} />
         </Field>

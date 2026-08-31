@@ -42,6 +42,8 @@ Sicurezza > Apri comunque**.
 
 Il progetto viene salvato manualmente nel formato locale `.lwd`. Librerie,
 calcoli, pixelmap e report continuano a funzionare senza connessione Internet.
+Il campo **Nome progetto / Evento** alimenta titolo, nomi dei file e
+intestazione della relazione tecnica.
 
 ## Cablaggio dati manuale
 
@@ -51,6 +53,11 @@ attiva automaticamente: tenere premuto sul cabinet e trascinare sugli altri
 nell'ordine fisico del cavo. `Invio`, `Esc`, doppio clic sul canvas o il pulsante
 **Termina** nella toolbar chiudono subito la traccia. **Annulla ultimo tratto** rimuove l'ultimo cabinet aggiunto, mentre
 **Rimuovi cabinet dalla porta** scollega il cabinet selezionato.
+
+Nel riquadro **Porte e backup** è possibile assegnare automaticamente le porte
+libere oppure scegliere manualmente, per ogni main, la porta di backup interna
+e il riferimento a porta/controller di riserva. Il PDF cablaggi riporta la
+tabella completa; i percorsi usano linee ad alto contrasto e frecce maggiorate.
 
 Nella vista **Elettrico**, selezionare il primo cabinet e usare **+ Nuova linea**
 nella toolbar (`N`), oppure scegliere una linea esistente. Trascinare sui cabinet nell'ordine fisico del
@@ -75,11 +82,11 @@ e vengono ignorati dai cablaggi automatici dati ed elettrici.
 
 ## Piastre di sostegno MG7S
 
-Il manuale Yestech richiede le piastre di collegamento da 4 m di altezza
-sospesa, equivalenti a 8 cabinet MG7S da 500 mm, e prescrive un rinforzo della
-struttura o un consulto tecnico oltre 12 m. Nel pannello **Peso** l'app può
-generare automaticamente una sola fila di piastre a 4 m dal bordo inferiore o
-aggiungerle manualmente. Sono disponibili piastre semplici e piastre con
+Il manuale Yestech richiede le piastre di collegamento quando l'altezza sospesa
+raggiunge 4 m, equivalenti a 8 cabinet MG7S da 500 mm, e prescrive un rinforzo
+della struttura o un consulto tecnico oltre 12 m. Nel pannello **Peso** l'app può
+generare automaticamente una piastra in ogni giunto 2×2 nei primi 4 m dal
+bordo superiore oppure aggiungerle manualmente. Sono disponibili piastre semplici e piastre con
 aliscaf per il collegamento a una truss; posizione, tipo e peso restano
 modificabili.
 
@@ -101,7 +108,8 @@ percentuale di utilizzo. La portata iniziale del beam MG7S è 200 kg, mentre il
 peso proprio resta a zero finché non viene inserito un valore verificato.
 
 La relazione tecnica include una tavola rigging per ogni schermo con piastre e
-flybar evidenziate e la distinta dei pesi per ogni flybar. Il PDF cablaggi usa
+flybar evidenziate e il peso totale per ogni flybar. Il riepilogo usa
+assorbimenti in kW, cabinet per porta e cabinet per linea. Il PDF cablaggi usa
 pagine distinte per dati ed elettrico. Progetto `.lwd`, PDF e PNG includono nel
 nome il numero di revisione del progetto.
 

@@ -103,14 +103,20 @@ export function createAutoWiring(
     );
   }
 
-  const runs = best.groups.map((group, index) => ({
+  let runs = best.groups.map((group, index) => ({
     id: createId("port-run"),
     portNumber: index + 1,
     cabinetIds: group.map((cabinet) => cabinet.id),
     color: PORT_COLORS[index % PORT_COLORS.length],
   }));
 
-  if (controller.mode.redundancy) assignBackupPorts(runs, controllerModel.ethernetPorts);
+  if (controller.mode.redundancy) {
+    runs = assignAutomaticBackupPorts(
+      runs,
+      controllerModel.ethernetPorts,
+      `Secondo ${controllerModel.name}`,
+    );
+  }
   warnings.push(`Percorso scelto: ${best.label}.`);
   return { runs, warnings, totalDistanceMm: best.distanceMm };
 }
@@ -253,15 +259,20 @@ function evaluateCandidate(
   return { groups, distanceMm, label: candidate.label };
 }
 
-function assignBackupPorts(runs: PortRun[], totalPorts: number): void {
+export function assignAutomaticBackupPorts(
+  runs: PortRun[],
+  totalPorts: number,
+  backupControllerLabel = "Secondo controller",
+): PortRun[] {
   const used = new Set(runs.map((run) => run.portNumber));
   const available = Array.from({ length: totalPorts }, (_, index) => totalPorts - index).filter(
     (port) => !used.has(port),
   );
-  runs.forEach((run, index) => {
-    run.backupPortNumber = available[index];
-    run.backupControllerName = `Backup completo: stessa porta ${run.portNumber}`;
-  });
+  return runs.map((run, index) => ({
+    ...run,
+    backupPortNumber: available[index],
+    backupControllerName: `${backupControllerLabel}: porta ${run.portNumber}`,
+  }));
 }
 
 function formatNumber(value: number): string {

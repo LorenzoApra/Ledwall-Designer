@@ -13,6 +13,7 @@ import { parseRcfgXml } from "./rcfg";
 import { calculateFlybarMetrics } from "./flybars";
 import {
   appendCabinetToPortRun,
+  assignAutomaticBackupPorts,
   createAutoWiring,
   removeCabinetFromPortRuns,
   undoLastCabinetFromPortRun,
@@ -26,6 +27,20 @@ import { DEFAULT_LIBRARIES } from "../data/defaultLibraries";
 import { createDefaultProject } from "../data/defaultProject";
 
 describe("motore Ledwall Designer", () => {
+  it("assegna porte di backup libere e riferimenti al secondo controller", () => {
+    const runs = [
+      { id: "p1", portNumber: 1, cabinetIds: ["c1"], color: "#111" },
+      { id: "p2", portNumber: 2, cabinetIds: ["c2"], color: "#222" },
+    ];
+    const backedUp = assignAutomaticBackupPorts(runs, 4, "Controller B");
+    expect(backedUp.map((run) => run.backupPortNumber)).toEqual([4, 3]);
+    expect(backedUp.map((run) => run.backupControllerName)).toEqual([
+      "Controller B: porta 1",
+      "Controller B: porta 2",
+    ]);
+    expect(runs.every((run) => !("backupPortNumber" in run))).toBe(true);
+  });
+
   it("calcola la capacita MCTRL4K a 50 Hz e applica il margine una volta", () => {
     const project = createDefaultProject();
     const controller = project.controllers[0];
@@ -193,7 +208,7 @@ describe("motore Ledwall Designer", () => {
     expect(metrics[0].totalWeightKg).toBeCloseTo(70.6, 5);
   });
 
-  it("genera una fila di piastre MG7S sul bordo superiore a 4 m", () => {
+  it("genera tutti i giunti interni nei primi 4 m di uno schermo 8x5", () => {
     const project = createDefaultProject();
     const screen = project.screens[0];
     const cabinets = createCabinetGrid(screen, DEFAULT_LIBRARIES.cabinets[0], {
@@ -209,12 +224,14 @@ describe("motore Ledwall Designer", () => {
     );
     expect(plan.required).toBe(true);
     expect(plan.heightMm).toBe(4000);
-    expect(plan.plates).toHaveLength(4);
-    expect(plan.plates.every((plate) => plate.yMm === 0)).toBe(true);
-    expect(plan.plates.every((plate) => plate.cabinetIds.length === 2)).toBe(true);
+    expect(plan.plates).toHaveLength(28);
+    expect([...new Set(plan.plates.map((plate) => plate.yMm))]).toEqual([
+      500, 1000, 1500, 2000, 2500, 3000, 3500,
+    ]);
+    expect(plan.plates.every((plate) => plate.cabinetIds.length === 4)).toBe(true);
   });
 
-  it("genera la fila a 4 m dal bordo inferiore per uno schermo da 6 m", () => {
+  it("genera otto file di giunti nei primi 4 m di uno schermo da 6 m", () => {
     const project = createDefaultProject();
     const screen = project.screens[0];
     const cabinets = createCabinetGrid(screen, DEFAULT_LIBRARIES.cabinets[0], {
@@ -223,8 +240,49 @@ describe("motore Ledwall Designer", () => {
       rotation: 0,
     });
     const plan = createAutomaticSupportPlates(screen, cabinets, DEFAULT_LIBRARIES, "simple");
-    expect(plan.plates).toHaveLength(4);
-    expect(plan.plates.every((plate) => plate.yMm === 2000)).toBe(true);
+    expect(plan.plates).toHaveLength(32);
+    expect([...new Set(plan.plates.map((plate) => plate.yMm))]).toEqual([
+      500, 1000, 1500, 2000, 2500, 3000, 3500, 4000,
+    ]);
+    expect(plan.plates.every((plate) => plate.cabinetIds.length === 4)).toBe(true);
+  });
+
+  it("non perde giunti nella sagoma a gradoni con scarti sub-millimetrici", () => {
+    const project = createDefaultProject();
+    const screen = project.screens[0];
+    const fullGrid = createCabinetGrid(screen, DEFAULT_LIBRARIES.cabinets[0], {
+      rows: 12,
+      columns: 12,
+      rotation: 0,
+    });
+    const cabinets = fullGrid
+      .filter((cabinet) =>
+        cabinet.row <= 9 ||
+        (cabinet.row === 10 && cabinet.column >= 2 && cabinet.column <= 11) ||
+        (cabinet.row === 11 && cabinet.column >= 3 && cabinet.column <= 10) ||
+        (cabinet.row === 12 && cabinet.column >= 4 && cabinet.column <= 9),
+      )
+      .map((cabinet) =>
+        ({
+          ...cabinet,
+          physicalXmm:
+            cabinet.column === 5 || cabinet.column === 6
+              ? cabinet.physicalXmm - 6.4
+              : cabinet.physicalXmm,
+          physicalYmm:
+            cabinet.row >= 3 && cabinet.row <= 5
+              ? cabinet.physicalYmm - 4.8
+              : cabinet.physicalYmm,
+        }),
+      );
+
+    expect(cabinets).toHaveLength(132);
+    const plan = createAutomaticSupportPlates(screen, cabinets, DEFAULT_LIBRARIES, "simple");
+    expect(plan.heightMm).toBe(6000);
+    expect(plan.plates).toHaveLength(88);
+    expect([...new Set(plan.plates.map((plate) => plate.yMm))]).toEqual([
+      500, 1000, 1500, 2000, 2500, 3000, 3500, 4000,
+    ]);
     expect(plan.plates.every((plate) => plate.cabinetIds.length === 4)).toBe(true);
   });
 
@@ -268,10 +326,10 @@ describe("motore Ledwall Designer", () => {
     ).plates;
     project.rigging.simplePlateWeightKg = 0.5;
 
-    expect(calculateEstimatedProjectWeightKg(project, DEFAULT_LIBRARIES)).toBeCloseTo(355);
+    expect(calculateEstimatedProjectWeightKg(project, DEFAULT_LIBRARIES)).toBeCloseTo(367);
     const pointTotal = calculateSuspensionMetrics(project, DEFAULT_LIBRARIES)
       .reduce((sum, metric) => sum + metric.totalWeightKg, 0);
-    expect(pointTotal).toBeCloseTo(355);
+    expect(pointTotal).toBeCloseTo(367);
   });
 
   it("calcola carico, portata e peso proprio di una flybar", () => {
