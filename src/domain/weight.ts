@@ -1,5 +1,6 @@
 import { cabinetPhysicalCenter } from "./geometry";
 import { createId } from "./id";
+import { supportPlateWeightKg } from "./supportPlates";
 import type {
   AppLibraries,
   CabinetInstance,
@@ -54,10 +55,27 @@ export function calculateSuspensionMetrics(
         const model = cabinet ? modelById.get(cabinet.modelId) : undefined;
         return total + (model?.weightKg ?? 0);
       }, 0);
+      const plateWeightKg = screen.supportPlates.reduce((total, plate) => {
+        const affectedPoints = screen.suspensionPoints.filter((candidate) =>
+          candidate.cabinetIds.some((id) => plate.cabinetIds.includes(id)),
+        );
+        if (
+          !affectedPoints.some((candidate) => candidate.id === point.id) ||
+          affectedPoints.length === 0
+        ) {
+          return total;
+        }
+        return total + supportPlateWeightKg(
+          plate,
+          project.rigging.simplePlateWeightKg,
+          project.rigging.aliscafPlateWeightKg,
+        ) / affectedPoints.length;
+      }, 0);
       const estimatedAccessoryWeightKg =
         point.cabinetIds.length *
           (project.rigging.cableKgPerCabinet + project.rigging.accessoryKgPerCabinet) +
-        project.rigging.hangingBarKgPerPoint;
+        project.rigging.hangingBarKgPerPoint +
+        plateWeightKg;
       return {
         point,
         cabinetWeightKg,
@@ -87,5 +105,24 @@ export function calculateEstimatedProjectWeightKg(
     (total, screen) => total + screen.suspensionPoints.length,
     0,
   );
-  return cabinetAndAccessoriesKg + pointCount * project.rigging.hangingBarKgPerPoint;
+  const supportPlateKg = project.screens.reduce(
+    (total, screen) =>
+      total +
+      screen.supportPlates.reduce(
+        (screenTotal, plate) =>
+          screenTotal +
+          supportPlateWeightKg(
+            plate,
+            project.rigging.simplePlateWeightKg,
+            project.rigging.aliscafPlateWeightKg,
+          ),
+        0,
+      ),
+    0,
+  );
+  return (
+    cabinetAndAccessoriesKg +
+    pointCount * project.rigging.hangingBarKgPerPoint +
+    supportPlateKg
+  );
 }

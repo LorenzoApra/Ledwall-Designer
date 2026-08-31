@@ -1,1 +1,3 @@
 f4d985376894f876f183fb62bf15113c7edb2caf4b0cdbf76a2a951de3faa90d  Ledwall Designer_0.1.0_aarch64.dmg
+73bbafedd27092dc31a82015d3d42e23b464420021a8db106412b6479f545080  Ledwall Designer_0.1.1_aarch64.dmg
+92b5d49c2eaa913d5891fc97c969078efd3553d293f5d91785b8da39250313c2  Ledwall Designer_0.1.2_aarch64.dmg

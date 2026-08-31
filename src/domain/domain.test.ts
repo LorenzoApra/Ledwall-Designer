@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { calculateControllerCapacity } from "./capacity";
-import { createAutomaticPowerLines, calculatePowerLineMetrics } from "./electrical";
+import {
+  appendCabinetToPowerLine,
+  calculatePowerLineMetrics,
+  createAutomaticPowerLines,
+  removeCabinetFromPowerLines,
+  undoLastCabinetFromPowerLine,
+} from "./electrical";
 import { createCabinetGrid } from "./layout";
+import { createAutomaticSupportPlates } from "./supportPlates";
 import {
   appendCabinetToPortRun,
   createAutoWiring,
@@ -123,6 +130,27 @@ describe("motore Ledwall Designer", () => {
     expect(metrics.reduce((sum, metric) => sum + metric.line.cabinetIds.length, 0)).toBe(40);
   });
 
+  it("costruisce e corregge una linea elettrica manuale", () => {
+    let lines = appendCabinetToPowerLine([], 1, "cabinet-1");
+    lines = appendCabinetToPowerLine(lines, 1, "cabinet-2");
+    lines = appendCabinetToPowerLine(lines, 1, "cabinet-3");
+    expect(lines[0].cabinetIds).toEqual(["cabinet-1", "cabinet-2", "cabinet-3"]);
+
+    const undone = undoLastCabinetFromPowerLine(lines, 1);
+    expect(undone.removedCabinetId).toBe("cabinet-3");
+    expect(undone.nextCabinetId).toBe("cabinet-2");
+
+    const removed = removeCabinetFromPowerLines(undone.lines, "cabinet-1");
+    expect(removed[0].cabinetIds).toEqual(["cabinet-2"]);
+  });
+
+  it("sposta un cabinet tra linee elettriche senza duplicarlo", () => {
+    let lines = appendCabinetToPowerLine([], 1, "cabinet-1");
+    lines = appendCabinetToPowerLine(lines, 2, "cabinet-1");
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatchObject({ lineNumber: 2, cabinetIds: ["cabinet-1"] });
+  });
+
   it("calcola un punto di sospensione per colonna", () => {
     const project = createDefaultProject();
     const screen = project.screens[0];
@@ -139,6 +167,43 @@ describe("motore Ledwall Designer", () => {
     const metrics = calculateSuspensionMetrics(project, DEFAULT_LIBRARIES);
     expect(metrics).toHaveLength(5);
     expect(metrics[0].totalWeightKg).toBeCloseTo(70.6, 5);
+  });
+
+  it("genera le piastre MG7S ai giunti interni da 4 m di altezza", () => {
+    const project = createDefaultProject();
+    const screen = project.screens[0];
+    const cabinets = createCabinetGrid(screen, DEFAULT_LIBRARIES.cabinets[0], {
+      rows: 8,
+      columns: 5,
+      rotation: 0,
+    });
+    const plan = createAutomaticSupportPlates(
+      screen,
+      cabinets,
+      DEFAULT_LIBRARIES,
+      "simple",
+    );
+    expect(plan.required).toBe(true);
+    expect(plan.heightMm).toBe(4000);
+    expect(plan.plates).toHaveLength(28);
+    expect(plan.plates.every((plate) => plate.cabinetIds.length === 4)).toBe(true);
+  });
+
+  it("avvisa quando la struttura sospesa supera 12 m", () => {
+    const project = createDefaultProject();
+    const screen = project.screens[0];
+    const cabinets = createCabinetGrid(screen, DEFAULT_LIBRARIES.cabinets[0], {
+      rows: 25,
+      columns: 2,
+      rotation: 0,
+    });
+    const plan = createAutomaticSupportPlates(
+      screen,
+      cabinets,
+      DEFAULT_LIBRARIES,
+      "aliscaf",
+    );
+    expect(plan.warnings.some((warning) => warning.includes("12 m"))).toBe(true);
   });
 
   it("mostra il peso stimato anche prima di generare i punti", () => {

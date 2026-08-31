@@ -9,13 +9,17 @@ export function calculateProjectTotals(project: LedwallProject, libraries: AppLi
     (totals, cabinet) => {
       const model = modelById.get(cabinet.modelId);
       if (!model) return totals;
-      totals.pixels += model.pixelWidth * model.pixelHeight;
+      if (!cabinet.excludeFromPixelmap) {
+        totals.pixels += model.pixelWidth * model.pixelHeight;
+      } else {
+        totals.excludedCabinetCount += 1;
+      }
       totals.maxW += model.powerMaxW;
       totals.averageW += model.powerAverageW;
       totals.cabinetWeightKg += model.weightKg;
       return totals;
     },
-    { pixels: 0, maxW: 0, averageW: 0, cabinetWeightKg: 0 },
+    { pixels: 0, maxW: 0, averageW: 0, cabinetWeightKg: 0, excludedCabinetCount: 0 },
   );
   return {
     cabinetCount: project.cabinets.length,

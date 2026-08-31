@@ -13,6 +13,7 @@ import type {
   ControllerModel,
   LedwallProject,
   Rotation,
+  SupportPlateType,
 } from "../domain/types";
 import { Field, Metric, Section, Toggle } from "./Ui";
 
@@ -24,12 +25,17 @@ interface InspectorProps {
   libraries: AppLibraries;
   selectedScreenId?: string;
   selectedCabinetId?: string;
+  selectedCabinetIds: string[];
   manualTracePort?: number;
+  manualPowerLine?: number;
   onProjectChange: (update: (project: LedwallProject) => LedwallProject) => void;
   onLibrariesChange: (libraries: AppLibraries) => void;
   onResetLibraries: () => void;
   onSelectScreen: (id?: string) => void;
   onSelectCabinet: (id?: string) => void;
+  onSelectAllCabinetsInScreen: () => void;
+  onClearCabinetSelection: () => void;
+  onSetPixelmapExclusion: (excluded: boolean) => void;
   onAddScreen: () => void;
   onDeleteScreen: () => void;
   onDeleteCabinet: () => void;
@@ -37,7 +43,13 @@ interface InspectorProps {
   onShowBulk: () => void;
   onAutoWire: () => void;
   onAutoPower: () => void;
+  onAssignSelectedCabinetToPowerLine: (lineNumber?: number) => void;
+  onActivateManualPowerTrace: (lineNumber: number) => void;
+  onFinishManualPowerTrace: () => void;
+  onUndoManualPowerTraceStep: () => void;
   onAutoSuspension: () => void;
+  onAutoSupportPlates: (type: SupportPlateType) => void;
+  onAddManualSupportPlate: (type: SupportPlateType) => void;
   onAssignSelectedCabinet: (portNumber?: number) => void;
   onActivateManualTrace: (portNumber: number) => void;
   onFinishManualTrace: () => void;
@@ -122,6 +134,12 @@ function DesignPanel(props: InspectorProps) {
   const { project, libraries, selectedScreenId, selectedCabinetId, onProjectChange } = props;
   const screen = project.screens.find((item) => item.id === selectedScreenId) ?? project.screens[0];
   const cabinet = project.cabinets.find((item) => item.id === selectedCabinetId);
+  const selectedCabinets = project.cabinets.filter((item) =>
+    props.selectedCabinetIds.includes(item.id),
+  );
+  const allExcludedFromPixelmap =
+    selectedCabinets.length > 0 &&
+    selectedCabinets.every((item) => item.excludeFromPixelmap);
   const model = cabinet ? libraries.cabinets.find((item) => item.id === cabinet.modelId) : undefined;
   const bounds = screen ? calculateScreenPixelBounds(screen, project.cabinets, libraries.cabinets) : undefined;
 
@@ -167,6 +185,25 @@ function DesignPanel(props: InspectorProps) {
         )}
       </Section>
 
+      <Section title={`Selezione (${selectedCabinets.length})`}>
+        <p className="empty-copy">
+          Clic normale per selezionare un cabinet; Cmd/Ctrl/Shift + clic per aggiungerlo o rimuoverlo dalla selezione.
+        </p>
+        <div className="button-row">
+          <button className="button secondary grow" onClick={props.onSelectAllCabinetsInScreen}>Tutto lo schermo</button>
+          <button className="button secondary grow" disabled={!selectedCabinets.length} onClick={props.onClearCabinetSelection}>Deseleziona</button>
+        </div>
+        <Toggle
+          label="Escludi dalla pixelmap"
+          checked={allExcludedFromPixelmap}
+          disabled={!selectedCabinets.length}
+          onChange={props.onSetPixelmapExclusion}
+        />
+        <button className="button danger full" disabled={!selectedCabinets.length} onClick={props.onDeleteCabinet}>
+          Elimina {selectedCabinets.length || ""} cabinet
+        </button>
+      </Section>
+
       <Section title="Cabinet selezionato">
         {!cabinet || !model ? (
           <p className="empty-copy">Seleziona un cabinet nel canvas per modificarlo.</p>
@@ -196,7 +233,7 @@ function DesignPanel(props: InspectorProps) {
             </div>
             <div className="button-row">
               <button className="button secondary grow" onClick={props.onDuplicateCabinet}>Duplica</button>
-              <button className="button danger" onClick={props.onDeleteCabinet}>Elimina</button>
+              <button className="button danger" onClick={props.onDeleteCabinet}>Elimina selezione</button>
             </div>
           </>
         )}
@@ -350,6 +387,25 @@ function DataPanel(props: InspectorProps) {
 function PowerPanel(props: InspectorProps) {
   const { project, onProjectChange, libraries } = props;
   const metrics = calculatePowerLineMetrics(project, libraries);
+  const selectedCabinet = project.cabinets.find(
+    (cabinet) => cabinet.id === props.selectedCabinetId,
+  );
+  const selectedAssignment = project.powerLines.find((line) =>
+    line.cabinetIds.includes(props.selectedCabinetId ?? ""),
+  );
+  const activeTraceLine = project.powerLines.find(
+    (line) => line.lineNumber === props.manualPowerLine,
+  );
+  const nextLineNumber = Math.max(
+    0,
+    ...project.powerLines.map((line) => line.lineNumber),
+  ) + 1;
+  const selectableLineNumbers = [
+    ...new Set([
+      ...project.powerLines.map((line) => line.lineNumber),
+      nextLineNumber,
+    ]),
+  ].sort((a, b) => a - b);
   const update = (key: keyof LedwallProject["electrical"], value: number) =>
     onProjectChange((current) => ({ ...current, electrical: { ...current.electrical, [key]: value } }));
   return (
@@ -363,14 +419,88 @@ function PowerPanel(props: InspectorProps) {
         <div className="info-strip">Limite operativo: {(project.electrical.voltageV * project.electrical.breakerA * project.electrical.utilizationPercent / 100).toFixed(0)} W per linea</div>
         <button className="button primary full" onClick={props.onAutoPower}>Distribuisci linee automaticamente</button>
       </Section>
+      <Section title="Disegno manuale linee">
+        {props.manualPowerLine !== undefined && (
+          <div className="trace-banner power-trace">
+            <strong>Traccia L-{props.manualPowerLine} attiva</strong>
+            <span>Tieni premuto sul cabinet e trascina sugli altri nell’ordine del cavo elettrico.</span>
+          </div>
+        )}
+        {!selectedCabinet ? (
+          <p className="empty-copy">
+            Seleziona il primo cabinet sul canvas, poi scegli una linea esistente o creane una nuova.
+          </p>
+        ) : (
+          <>
+            <div className="info-strip">
+              Cabinet selezionato: {selectedCabinet.row},{selectedCabinet.column}
+              {selectedAssignment
+                ? ` · L-${selectedAssignment.lineNumber} · ordine ${selectedAssignment.cabinetIds.indexOf(selectedCabinet.id) + 1}`
+                : " · senza alimentazione"}
+            </div>
+            <Field label="Linea di partenza">
+              <select
+                value={selectedAssignment?.lineNumber ?? ""}
+                onChange={(event) => props.onAssignSelectedCabinetToPowerLine(
+                  event.target.value ? Number(event.target.value) : undefined,
+                )}
+              >
+                <option value="">Non assegnato</option>
+                {selectableLineNumbers.map((lineNumber) => (
+                  <option key={lineNumber} value={lineNumber}>
+                    {lineNumber === nextLineNumber
+                      ? `Nuova linea ${lineNumber}`
+                      : `Linea ${lineNumber}`}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <button
+              className="button danger full"
+              disabled={!selectedAssignment}
+              onClick={() => props.onAssignSelectedCabinetToPowerLine(undefined)}
+            >
+              Rimuovi cabinet dalla linea
+            </button>
+          </>
+        )}
+        {props.manualPowerLine !== undefined ? (
+          <div className="button-row">
+            <button
+              className="button secondary grow"
+              disabled={!activeTraceLine?.cabinetIds.length}
+              onClick={props.onUndoManualPowerTraceStep}
+            >
+              Annulla ultimo tratto
+            </button>
+            <button className="button primary grow" onClick={props.onFinishManualPowerTrace}>
+              Termina traccia
+            </button>
+          </div>
+        ) : selectedAssignment ? (
+          <button
+            className="button primary full"
+            onClick={() => props.onActivateManualPowerTrace(selectedAssignment.lineNumber)}
+          >
+            Continua traccia L-{selectedAssignment.lineNumber}
+          </button>
+        ) : null}
+      </Section>
       <Section title={`Linee (${metrics.length})`}>
         <div className="run-list">
           {metrics.map((metric) => (
-            <div className={`run-card ${metric.valid ? "" : "invalid"}`} key={metric.line.id}>
+            <div className={`run-card ${metric.valid ? "" : "invalid"} ${metric.line.lineNumber === props.manualPowerLine ? "active-trace" : ""}`} key={metric.line.id}>
               <div className="run-card-title"><i style={{ background: metric.line.color }} /><strong>Linea {metric.line.lineNumber}</strong><span>{metric.line.cabinetIds.length} cab.</span></div>
               <div className="progress"><span style={{ width: `${Math.min(100, metric.utilizationPercent)}%`, background: metric.line.color }} /></div>
               <small>{formatInt(metric.maxW)} W max · {formatInt(metric.averageW)} W medi</small>
               <small>{metric.maxA.toFixed(2)} A max · {metric.utilizationPercent.toFixed(1)}%</small>
+              <small className="run-order">Ordine: {metric.line.cabinetIds.map((id) => {
+                const cabinet = project.cabinets.find((item) => item.id === id);
+                return cabinet ? `${cabinet.row},${cabinet.column}` : "?";
+              }).join(" → ")}</small>
+              <button className="mini-button full" onClick={() => props.onActivateManualPowerTrace(metric.line.lineNumber)}>
+                Modifica percorso
+              </button>
             </div>
           ))}
         </div>
@@ -390,7 +520,10 @@ function WeightPanel(props: InspectorProps) {
       <Section title="Stime accessori">
         <Field label="Cavi kg/cabinet"><input type="number" min="0" step="0.05" value={project.rigging.cableKgPerCabinet} onChange={(event) => update("cableKgPerCabinet", Number(event.target.value))} /></Field>
         <Field label="U-shape/piastre kg/cabinet"><input type="number" min="0" step="0.05" value={project.rigging.accessoryKgPerCabinet} onChange={(event) => update("accessoryKgPerCabinet", Number(event.target.value))} /></Field>
-        <Field label="Hanging bar kg/punto"><input type="number" min="0" step="0.1" value={project.rigging.hangingBarKgPerPoint} onChange={(event) => update("hangingBarKgPerPoint", Number(event.target.value))} /></Field>
+        <Field
+          label="Hardware sospensione kg/punto"
+          hint="Quota stimata di hanging bar, giunti e grilli attribuita a ciascun punto; non è la portata del punto."
+        ><input type="number" min="0" step="0.1" value={project.rigging.hangingBarKgPerPoint} onChange={(event) => update("hangingBarKgPerPoint", Number(event.target.value))} /></Field>
         <button className="button primary full" onClick={props.onAutoSuspension}>Genera punti per colonna</button>
       </Section>
       <Section title="Carichi stimati">
@@ -401,7 +534,9 @@ function WeightPanel(props: InspectorProps) {
             return (
               <div className="run-card" key={point.id}>
                 <div className="run-card-title"><strong>{point.label}</strong><span>{point.cabinetIds.length} cab.</span></div>
-                <small>{metric?.totalWeightKg.toFixed(1)} kg totali</small>
+                <small>{metric?.cabinetWeightKg.toFixed(1)} kg cabinet</small>
+                <small>{metric?.estimatedAccessoryWeightKg.toFixed(1)} kg cavi, accessori e hardware</small>
+                <small><strong>{metric?.totalWeightKg.toFixed(1)} kg stimati sul punto</strong></small>
                 <Field label="Posizione X mm"><input type="number" value={point.xMm} onChange={(event) => onProjectChange((current) => ({ ...current, screens: current.screens.map((screen) => ({ ...screen, suspensionPoints: screen.suspensionPoints.map((item) => item.id === point.id ? { ...item, xMm: Number(event.target.value) } : item) })) }))} /></Field>
               </div>
             );

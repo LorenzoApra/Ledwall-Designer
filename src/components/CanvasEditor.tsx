@@ -19,12 +19,15 @@ interface CanvasEditorProps {
   zoom: number;
   selectedScreenId?: string;
   selectedCabinetId?: string;
+  selectedCabinetIds: string[];
   manualTracePort?: number;
+  manualPowerLine?: number;
   snap: boolean;
   onSelectScreen: (id?: string) => void;
-  onSelectCabinet: (id?: string) => void;
+  onSelectCabinet: (id?: string, additive?: boolean) => void;
   onMoveCabinet: (id: string, pixelX: number, pixelY: number) => void;
   onTraceCabinet: (id: string) => void;
+  onTracePowerCabinet: (id: string) => void;
 }
 
 interface DragState {
@@ -44,12 +47,15 @@ export function CanvasEditor({
   zoom,
   selectedScreenId,
   selectedCabinetId,
+  selectedCabinetIds,
   manualTracePort,
+  manualPowerLine,
   snap,
   onSelectScreen,
   onSelectCabinet,
   onMoveCabinet,
   onTraceCabinet,
+  onTracePowerCabinet,
 }: CanvasEditorProps) {
   const svgRef = useRef<SVGSVGElement>(null);
   const traceLastCabinetId = useRef<string | undefined>(undefined);
@@ -64,17 +70,33 @@ export function CanvasEditor({
     () => new Map(project.cabinets.map((cabinet) => [cabinet.id, cabinet])),
     [project.cabinets],
   );
+  const selectedCabinetIdSet = useMemo(
+    () => new Set(selectedCabinetIds),
+    [selectedCabinetIds],
+  );
   const controller = project.controllers[0];
+  const activeTraceIds = useMemo(() => {
+    if (viewMode === "data" && manualTracePort !== undefined) {
+      return controller?.portRuns.find((item) => item.portNumber === manualTracePort)?.cabinetIds;
+    }
+    if (viewMode === "power" && manualPowerLine !== undefined) {
+      return project.powerLines.find((item) => item.lineNumber === manualPowerLine)?.cabinetIds;
+    }
+    return undefined;
+  }, [controller?.portRuns, manualPowerLine, manualTracePort, project.powerLines, viewMode]);
+  const traceActive =
+    (viewMode === "data" && manualTracePort !== undefined) ||
+    (viewMode === "power" && manualPowerLine !== undefined);
   const activeTraceEnd = useMemo(() => {
-    if (manualTracePort === undefined) return undefined;
-    const run = controller?.portRuns.find((item) => item.portNumber === manualTracePort);
-    const cabinet = run ? cabinetById.get(run.cabinetIds.at(-1) ?? "") : undefined;
+    const cabinet = activeTraceIds
+      ? cabinetById.get(activeTraceIds.at(-1) ?? "")
+      : undefined;
     const model = cabinet ? modelById.get(cabinet.modelId) : undefined;
     const screen = cabinet ? project.screens.find((item) => item.id === cabinet.screenId) : undefined;
     if (!cabinet || !model || !screen) return undefined;
     const center = cabinetPixelCenter(cabinet, model);
     return { x: screen.canvasX + center.x, y: screen.canvasY + center.y };
-  }, [cabinetById, controller?.portRuns, manualTracePort, modelById, project.screens]);
+  }, [activeTraceIds, cabinetById, modelById, project.screens]);
   const runByCabinet = useMemo(() => {
     const map = new Map<string, { port: number; order: number; color: string }>();
     controller?.portRuns.forEach((run) =>
@@ -111,13 +133,14 @@ export function CanvasEditor({
   }
 
   function handlePointerMove(event: React.PointerEvent<SVGSVGElement>): void {
-    if (traceDragging && manualTracePort !== undefined) {
+    if (traceDragging && traceActive) {
       const point = clientToSvg(event.clientX, event.clientY);
       setTracePointer(point);
       const cabinet = cabinetAtPoint(point);
       if (cabinet && cabinet.id !== traceLastCabinetId.current) {
         traceLastCabinetId.current = cabinet.id;
-        onTraceCabinet(cabinet.id);
+        if (viewMode === "data") onTraceCabinet(cabinet.id);
+        if (viewMode === "power") onTracePowerCabinet(cabinet.id);
       }
       return;
     }
@@ -152,13 +175,17 @@ export function CanvasEditor({
     event.stopPropagation();
     const point = clientToSvg(event.clientX, event.clientY);
     event.currentTarget.setPointerCapture(event.pointerId);
-    onSelectCabinet(cabinet.id);
+    onSelectCabinet(
+      cabinet.id,
+      event.metaKey || event.ctrlKey || event.shiftKey,
+    );
     onSelectScreen(cabinet.screenId);
-    if (viewMode === "data" && manualTracePort !== undefined) {
+    if (traceActive) {
       event.preventDefault();
       svgRef.current?.setPointerCapture(event.pointerId);
       traceLastCabinetId.current = cabinet.id;
-      onTraceCabinet(cabinet.id);
+      if (viewMode === "data") onTraceCabinet(cabinet.id);
+      if (viewMode === "power") onTracePowerCabinet(cabinet.id);
       setTraceDragging(true);
       setTracePointer(point);
       return;
@@ -176,7 +203,7 @@ export function CanvasEditor({
     <div className="canvas-scroll">
       <svg
         ref={svgRef}
-        className={`design-canvas ${manualTracePort !== undefined ? "trace-mode" : ""}`}
+        className={`design-canvas ${traceActive ? "trace-mode" : ""}`}
         viewBox={`0 0 ${project.canvasWidth} ${project.canvasHeight}`}
         width={project.canvasWidth * zoom}
         height={project.canvasHeight * zoom}
@@ -222,6 +249,9 @@ export function CanvasEditor({
           <marker id="arrow-power" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
             <path d="M 0 0 L 10 5 L 0 10 z" fill="#f07831" />
           </marker>
+          <marker id="arrow-power-active" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#ff861c" />
+          </marker>
         </defs>
         <rect width={project.canvasWidth} height={project.canvasHeight} fill="url(#largeGrid)" />
 
@@ -264,8 +294,9 @@ export function CanvasEditor({
                 const size = cabinetPixelSize(cabinet, model);
                 const data = runByCabinet.get(cabinet.id);
                 const power = powerByCabinet.get(cabinet.id);
-                const fill =
-                  viewMode === "data"
+                const fill = cabinet.excludeFromPixelmap && viewMode === "pixelmap"
+                  ? "#090909"
+                  : viewMode === "data"
                     ? data?.color ?? "#e4e8ed"
                     : viewMode === "power"
                       ? power?.color ?? "#e4e8ed"
@@ -287,8 +318,9 @@ export function CanvasEditor({
                       height={size.height}
                       fill={fill}
                       fillOpacity={viewMode === "pixelmap" ? 1 : 0.82}
-                      stroke={cabinet.id === selectedCabinetId ? "#ff9d20" : viewMode === "pixelmap" ? "#fff" : "#1d2a35"}
-                      strokeWidth={cabinet.id === selectedCabinetId ? 5 : 2}
+                      stroke={selectedCabinetIdSet.has(cabinet.id) ? "#ff9d20" : cabinet.excludeFromPixelmap && viewMode === "pixelmap" ? "#ff4f6d" : viewMode === "pixelmap" ? "#fff" : "#1d2a35"}
+                      strokeWidth={selectedCabinetIdSet.has(cabinet.id) ? 5 : 2}
+                      strokeDasharray={cabinet.excludeFromPixelmap ? "10 6" : undefined}
                     />
                     <text x="5" y="17" fontSize="13" fontWeight="700" fill={viewMode === "pixelmap" ? "#fff" : "#10212d"} pointerEvents="none">
                       {lines.map((line, index) => (
@@ -322,8 +354,8 @@ export function CanvasEditor({
                     cabinetById={cabinetById}
                     modelById={modelById}
                     screenId={screen.id}
-                    color="#f07831"
-                    marker="url(#arrow-power)"
+                    color={line.lineNumber === manualPowerLine ? "#ff861c" : line.color}
+                    marker={line.lineNumber === manualPowerLine ? "url(#arrow-power-active)" : "url(#arrow-power)"}
                     startLabel={`L${line.lineNumber}`}
                   />
                 ))}
@@ -349,10 +381,40 @@ export function CanvasEditor({
                     </g>
                   );
                 })}
+              {viewMode === "weight" &&
+                screen.supportPlates.map((plate) => {
+                  const firstModel = screenCabinets
+                    .map((cabinet) => modelById.get(cabinet.modelId))
+                    .find((model) => model !== undefined);
+                  const pitch = firstModel?.pitchMm ?? 1;
+                  const x = plate.xMm / pitch;
+                  const y = plate.yMm / pitch;
+                  const aliscaf = plate.type === "aliscaf";
+                  return (
+                    <g key={plate.id} pointerEvents="none">
+                      {aliscaf && (
+                        <line x1={x - 46} y1={y} x2={x + 46} y2={y} stroke="#276d9c" strokeWidth="8" />
+                      )}
+                      <rect
+                        x={x - 17}
+                        y={y - 11}
+                        width="34"
+                        height="22"
+                        rx="4"
+                        fill={aliscaf ? "#4aa3d8" : "#d95c78"}
+                        stroke="#ffffff"
+                        strokeWidth="3"
+                      />
+                      <text x={x} y={y + 5} textAnchor="middle" fontSize="12" fontWeight="900" fill="#fff">
+                        {aliscaf ? "PA" : "PS"}
+                      </text>
+                    </g>
+                  );
+                })}
             </g>
           );
         })}
-        {viewMode === "data" && traceDragging && activeTraceEnd && tracePointer && (
+        {traceActive && traceDragging && activeTraceEnd && tracePointer && (
           <line
             x1={activeTraceEnd.x}
             y1={activeTraceEnd.y}
@@ -361,7 +423,7 @@ export function CanvasEditor({
             stroke="#ff861c"
             strokeWidth="5"
             strokeDasharray="12 8"
-            markerEnd="url(#arrow-data-active)"
+            markerEnd={viewMode === "data" ? "url(#arrow-data-active)" : "url(#arrow-power-active)"}
             pointerEvents="none"
           />
         )}
@@ -377,7 +439,11 @@ function cabinetLabels(
   data?: { port: number; order: number },
   power?: { line: number; order: number },
 ): string[] {
-  if (viewMode === "pixelmap") return [`${cabinet.row},${cabinet.column}`];
+  if (viewMode === "pixelmap") {
+    return cabinet.excludeFromPixelmap
+      ? [`${cabinet.row},${cabinet.column}`, "ESCLUSO PX"]
+      : [`${cabinet.row},${cabinet.column}`];
+  }
   if (viewMode === "data") {
     return data
       ? [`C-1`, `P-${data.port}`, `RV-${data.order + 1}`, `A-${cabinet.rotation}deg`, `WH-${size.width}x${size.height}`]
@@ -388,7 +454,11 @@ function cabinetLabels(
       ? [`L-${power.line}`, `ORD-${power.order + 1}`, `${cabinet.row},${cabinet.column}`]
       : [`${cabinet.row},${cabinet.column}`, "NO POWER"];
   }
-  return [`${cabinet.row},${cabinet.column}`, `${size.width}x${size.height}px`];
+  return [
+    `${cabinet.row},${cabinet.column}`,
+    `${size.width}x${size.height}px`,
+    ...(cabinet.excludeFromPixelmap ? ["NO PIXELMAP"] : []),
+  ];
 }
 
 function ConnectionRun({

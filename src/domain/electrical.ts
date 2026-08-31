@@ -43,6 +43,73 @@ export function createAutomaticPowerLines(
   return lines;
 }
 
+export interface UndoPowerLineResult {
+  lines: PowerLine[];
+  removedCabinetId?: string;
+  nextCabinetId?: string;
+}
+
+export function removeCabinetFromPowerLines(
+  lines: PowerLine[],
+  cabinetId: string,
+): PowerLine[] {
+  return lines
+    .map((line) => ({
+      ...line,
+      cabinetIds: line.cabinetIds.filter((id) => id !== cabinetId),
+    }))
+    .filter((line) => line.cabinetIds.length > 0);
+}
+
+export function appendCabinetToPowerLine(
+  lines: PowerLine[],
+  lineNumber: number,
+  cabinetId: string,
+): PowerLine[] {
+  const target = lines.find((line) => line.lineNumber === lineNumber);
+  if (target?.cabinetIds.includes(cabinetId)) return lines;
+
+  const cleaned = removeCabinetFromPowerLines(lines, cabinetId);
+  const existing = cleaned.find((line) => line.lineNumber === lineNumber);
+  const next = existing
+    ? cleaned.map((line) =>
+        line.id === existing.id
+          ? { ...line, cabinetIds: [...line.cabinetIds, cabinetId] }
+          : line,
+      )
+    : [
+        ...cleaned,
+        {
+          id: createId("power-line"),
+          lineNumber,
+          cabinetIds: [cabinetId],
+          color: portColor(lineNumber - 1),
+        },
+      ];
+  return next.sort((a, b) => a.lineNumber - b.lineNumber);
+}
+
+export function undoLastCabinetFromPowerLine(
+  lines: PowerLine[],
+  lineNumber: number,
+): UndoPowerLineResult {
+  const target = lines.find((line) => line.lineNumber === lineNumber);
+  const removedCabinetId = target?.cabinetIds.at(-1);
+  if (!target || !removedCabinetId) return { lines };
+
+  const nextIds = target.cabinetIds.slice(0, -1);
+  const next = lines
+    .map((line) =>
+      line.id === target.id ? { ...line, cabinetIds: nextIds } : line,
+    )
+    .filter((line) => line.cabinetIds.length > 0);
+  return {
+    lines: next,
+    removedCabinetId,
+    nextCabinetId: nextIds.at(-1),
+  };
+}
+
 export function calculatePowerLineMetrics(
   project: LedwallProject,
   libraries: AppLibraries,
@@ -78,4 +145,3 @@ export function calculatePowerLineMetrics(
     };
   });
 }
-

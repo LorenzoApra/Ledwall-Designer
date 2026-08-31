@@ -43,6 +43,7 @@ export function createDefaultProject(): LedwallProject {
         cabinetIds: [],
         pixelmap: { ...DEFAULT_PIXELMAP_OPTIONS },
         suspensionPoints: [],
+        supportPlates: [],
       },
     ],
     cabinets: [],
@@ -73,8 +74,10 @@ export function createDefaultProject(): LedwallProject {
       cableKgPerCabinet: 0.35,
       accessoryKgPerCabinet: 0.45,
       hangingBarKgPerPoint: 5,
+      simplePlateWeightKg: 0,
+      aliscafPlateWeightKg: 0,
+      plateRequirementHeightMm: 4000,
     },
     updatedAt: new Date().toISOString(),
   };
 }
-

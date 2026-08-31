@@ -92,6 +92,7 @@ export interface CabinetInstance {
   physicalXmm: number;
   physicalYmm: number;
   rotation: Rotation;
+  excludeFromPixelmap?: boolean;
 }
 
 export interface PixelmapOptions {
@@ -113,6 +114,17 @@ export interface SuspensionPoint {
   cabinetIds: string[];
 }
 
+export type SupportPlateType = "simple" | "aliscaf";
+
+export interface SupportPlate {
+  id: string;
+  type: SupportPlateType;
+  xMm: number;
+  yMm: number;
+  cabinetIds: string[];
+  automatic: boolean;
+}
+
 export interface LedScreen {
   id: string;
   name: string;
@@ -121,6 +133,7 @@ export interface LedScreen {
   cabinetIds: string[];
   pixelmap: PixelmapOptions;
   suspensionPoints: SuspensionPoint[];
+  supportPlates: SupportPlate[];
 }
 
 export interface PowerLine {
@@ -140,6 +153,9 @@ export interface RiggingSettings {
   cableKgPerCabinet: number;
   accessoryKgPerCabinet: number;
   hangingBarKgPerPoint: number;
+  simplePlateWeightKg: number;
+  aliscafPlateWeightKg: number;
+  plateRequirementHeightMm: number;
 }
 
 export interface ProjectMetadata {
@@ -205,4 +221,3 @@ export interface SuspensionPointMetrics {
   estimatedAccessoryWeightKg: number;
   totalWeightKg: number;
 }
-

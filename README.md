@@ -43,6 +43,25 @@ Sicurezza > Apri comunque**.
 Il progetto viene salvato manualmente nel formato locale `.lwd`. Librerie,
 calcoli, pixelmap e report continuano a funzionare senza connessione Internet.
 
+## Cablaggio dati manuale
+
+Nella vista **Dati**, selezionare il primo cabinet e scegliere la porta di
+partenza. La traccia si attiva automaticamente: tenere premuto sul cabinet e
+trascinare sugli altri nell'ordine fisico del cavo, quindi scegliere **Termina
+traccia**. **Annulla ultimo tratto** rimuove l'ultimo cabinet aggiunto, mentre
+**Rimuovi cabinet dalla porta** scollega il cabinet selezionato.
+
+Nella vista **Elettrico**, selezionare il primo cabinet e scegliere una linea
+esistente oppure **Nuova linea**. Trascinare sui cabinet nell'ordine fisico del
+cavo; carico, corrente e percentuale di utilizzo vengono aggiornati durante il
+disegno. Sono disponibili anche annullamento dell'ultimo tratto e rimozione del
+cabinet dalla linea.
+
+Un cabinet selezionato può essere eliminato dal pulsante sopra il canvas,
+dal pannello **Disegno** oppure con `Canc`/`Backspace`. L'operazione rimuove
+anche i relativi riferimenti da dati, elettrico e sospensioni; il comando
+**Annulla** consente di ripristinarlo.
+
 ## Fonti tecniche
 
 Le capacita dei controller precaricati derivano dalla documentazione ufficiale

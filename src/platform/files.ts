@@ -101,7 +101,27 @@ function parseProject(contents: string): LedwallProject {
   ) {
     throw new Error("Il file non e un progetto Ledwall Designer supportato.");
   }
-  return project as LedwallProject;
+  const normalized = project as LedwallProject;
+  normalized.cabinets = normalized.cabinets.map((cabinet) => ({
+    ...cabinet,
+    excludeFromPixelmap: cabinet.excludeFromPixelmap ?? false,
+  }));
+  normalized.screens = normalized.screens.map((screen) => ({
+    ...screen,
+    suspensionPoints: screen.suspensionPoints ?? [],
+    supportPlates: screen.supportPlates ?? [],
+  }));
+  normalized.powerLines = normalized.powerLines ?? [];
+  normalized.rigging = {
+    cableKgPerCabinet: normalized.rigging?.cableKgPerCabinet ?? 0.35,
+    accessoryKgPerCabinet: normalized.rigging?.accessoryKgPerCabinet ?? 0.45,
+    hangingBarKgPerPoint: normalized.rigging?.hangingBarKgPerPoint ?? 5,
+    simplePlateWeightKg: normalized.rigging?.simplePlateWeightKg ?? 0,
+    aliscafPlateWeightKg: normalized.rigging?.aliscafPlateWeightKg ?? 0,
+    plateRequirementHeightMm:
+      normalized.rigging?.plateRequirementHeightMm ?? 4000,
+  };
+  return normalized;
 }
 
 function downloadBlob(blob: Blob, filename: string): void {
@@ -123,4 +143,3 @@ function pickBrowserFile(accept: string): Promise<File | null> {
     input.click();
   });
 }
-

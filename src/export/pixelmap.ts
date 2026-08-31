@@ -34,7 +34,10 @@ export async function renderScreenPixelmap(
   libraries: AppLibraries,
   screen: LedScreen,
 ): Promise<RenderedPixelmap> {
-  const bounds = calculateScreenPixelBounds(screen, project.cabinets, libraries.cabinets);
+  const activeCabinets = project.cabinets.filter(
+    (cabinet) => !cabinet.excludeFromPixelmap,
+  );
+  const bounds = calculateScreenPixelBounds(screen, activeCabinets, libraries.cabinets);
   if (bounds.width <= 0 || bounds.height <= 0) {
     throw new Error("Lo schermo selezionato non contiene cabinet.");
   }
@@ -60,8 +63,10 @@ async function drawScreenPattern(
   originY: number,
 ): Promise<void> {
   const modelById = new Map(libraries.cabinets.map((model) => [model.id, model]));
-  const cabinets = project.cabinets.filter((cabinet) => cabinet.screenId === screen.id);
-  const bounds = calculateScreenPixelBounds(screen, project.cabinets, libraries.cabinets);
+  const cabinets = project.cabinets.filter(
+    (cabinet) => cabinet.screenId === screen.id && !cabinet.excludeFromPixelmap,
+  );
+  const bounds = calculateScreenPixelBounds(screen, cabinets, libraries.cabinets);
   if (bounds.width <= 0 || bounds.height <= 0) return;
   const left = originX + bounds.x;
   const top = originY + bounds.y;
@@ -219,4 +224,3 @@ function loadImage(source: string): Promise<HTMLImageElement> {
     image.src = source;
   });
 }
-
