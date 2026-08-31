@@ -5,6 +5,7 @@ export function renderWiringCanvas(
   project: LedwallProject,
   libraries: AppLibraries,
   screen: LedScreen,
+  mode: "data" | "power",
 ): HTMLCanvasElement {
   const bounds = calculateScreenPixelBounds(screen, project.cabinets, libraries.cabinets);
   if (bounds.width <= 0 || bounds.height <= 0) {
@@ -24,10 +25,16 @@ export function renderWiringCanvas(
   const modelById = new Map(libraries.cabinets.map((model) => [model.id, model]));
   const cabinetById = new Map(project.cabinets.map((cabinet) => [cabinet.id, cabinet]));
   const controller = project.controllers[0];
-  const runByCabinet = new Map<string, { runIndex: number; order: number }>();
-  controller?.portRuns.forEach((run, runIndex) =>
-    run.cabinetIds.forEach((id, order) => runByCabinet.set(id, { runIndex, order })),
-  );
+  const assignmentByCabinet = new Map<string, { number: number; order: number; color: string }>();
+  if (mode === "data") {
+    controller?.portRuns.forEach((run) =>
+      run.cabinetIds.forEach((id, order) => assignmentByCabinet.set(id, { number: run.portNumber, order, color: run.color })),
+    );
+  } else {
+    project.powerLines.forEach((line) =>
+      line.cabinetIds.forEach((id, order) => assignmentByCabinet.set(id, { number: line.lineNumber, order, color: line.color })),
+    );
+  }
 
   const toX = (value: number) => margin + (value - bounds.x) * scale;
   const toY = (value: number) => margin + (value - bounds.y) * scale;
@@ -35,11 +42,10 @@ export function renderWiringCanvas(
     const model = modelById.get(cabinet.modelId);
     if (!model) continue;
     const size = cabinetPixelSize(cabinet, model);
-    const assignment = runByCabinet.get(cabinet.id);
-    const run = assignment === undefined ? undefined : controller?.portRuns[assignment.runIndex];
+    const assignment = assignmentByCabinet.get(cabinet.id);
     const x = toX(cabinet.pixelX);
     const y = toY(cabinet.pixelY);
-    context.fillStyle = run?.color ?? "#eceff3";
+    context.fillStyle = assignment?.color ?? "#eceff3";
     context.globalAlpha = 0.72;
     context.fillRect(x, y, size.width * scale, size.height * scale);
     context.globalAlpha = 1;
@@ -50,19 +56,27 @@ export function renderWiringCanvas(
     context.font = `600 ${Math.max(10, Math.min(17, 9 * scale))}px Arial, sans-serif`;
     context.textBaseline = "top";
     const lines = assignment
-      ? [
+      ? mode === "data" ? [
           `C-1`,
-          `P-${run?.portNumber ?? "-"}`,
+          `P-${assignment.number}`,
           `RV-${assignment.order + 1}`,
           `A-${cabinet.rotation}deg`,
           `WH-${size.width}x${size.height}`,
+        ] : [
+          `L-${assignment.number}`,
+          `ORD-${assignment.order + 1}`,
+          `${cabinet.row},${cabinet.column}`,
+          `${model.powerMaxW}W max`,
         ]
       : [`${cabinet.row},${cabinet.column}`, "NON ASSEGNATO"];
     lines.forEach((line, index) => context.fillText(line, x + 4, y + 3 + index * Math.max(11, 10 * scale)));
   }
 
-  controller?.portRuns.forEach((run) => {
-    const points = run.cabinetIds
+  const connectionRuns = mode === "data"
+    ? (controller?.portRuns ?? []).map((run) => ({ number: run.portNumber, ids: run.cabinetIds, color: "#063cff" }))
+    : project.powerLines.map((line) => ({ number: line.lineNumber, ids: line.cabinetIds, color: line.color }));
+  connectionRuns.forEach((run) => {
+    const points = run.ids
       .map((id) => {
         const cabinet = cabinetById.get(id);
         const model = cabinet ? modelById.get(cabinet.modelId) : undefined;
@@ -72,23 +86,23 @@ export function renderWiringCanvas(
       })
       .filter((point): point is { x: number; y: number } => point !== undefined);
     if (points.length === 0) return;
-    context.strokeStyle = "#063cff";
-    context.fillStyle = "#063cff";
+    context.strokeStyle = run.color;
+    context.fillStyle = run.color;
     context.lineWidth = Math.max(2, 1.5 * scale);
     context.beginPath();
     context.moveTo(points[0].x, points[0].y);
     points.slice(1).forEach((point) => context.lineTo(point.x, point.y));
     context.stroke();
     points.slice(1).forEach((point, index) => drawArrow(context, points[index], point, scale));
-    drawEndpoint(context, points[0], "#32f54f", String(run.portNumber), scale);
+    drawEndpoint(context, points[0], "#32f54f", mode === "data" ? String(run.number) : `L${run.number}`, scale);
     drawEndpoint(context, points.at(-1)!, "#ff173d", "", scale);
   });
 
   context.fillStyle = "#121a22";
   context.font = "700 22px Arial, sans-serif";
-  context.fillText(`${controller?.name ?? "Controller"} - ${screen.name}`, margin, canvas.height - footer + 18);
+  context.fillText(`${mode === "data" ? controller?.name ?? "Controller" : "Distribuzione elettrica"} - ${screen.name}`, margin, canvas.height - footer + 18);
   context.font = "13px Arial, sans-serif";
-  context.fillText("Front View - percorso main", margin, canvas.height - footer + 48);
+  context.fillText(`Front View - ${mode === "data" ? "percorso main dati" : "linee elettriche"}`, margin, canvas.height - footer + 48);
   return canvas;
 }
 
@@ -134,4 +148,3 @@ function drawArrow(
   context.closePath();
   context.fill();
 }
-

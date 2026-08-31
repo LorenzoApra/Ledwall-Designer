@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 export function Field({
   label,
@@ -75,3 +75,54 @@ export function Metric({ label, value, tone = "normal" }: { label: string; value
   );
 }
 
+export function DecimalInput({
+  value,
+  onChange,
+  min,
+  ariaLabel,
+}: {
+  value: number;
+  onChange: (value: number) => void;
+  min?: number;
+  ariaLabel?: string;
+}) {
+  const [draft, setDraft] = useState(formatDecimal(value));
+  const focused = useRef(false);
+
+  useEffect(() => {
+    if (!focused.current) setDraft(formatDecimal(value));
+  }, [value]);
+
+  function commit(): void {
+    focused.current = false;
+    const parsed = Number(draft.trim().replace(",", "."));
+    if (Number.isFinite(parsed) && (min === undefined || parsed >= min)) {
+      onChange(parsed);
+      setDraft(formatDecimal(parsed));
+    } else {
+      setDraft(formatDecimal(value));
+    }
+  }
+
+  return (
+    <input
+      type="text"
+      inputMode="decimal"
+      aria-label={ariaLabel}
+      value={draft}
+      onFocus={() => { focused.current = true; }}
+      onChange={(event) => {
+        const next = event.target.value;
+        if (/^-?\d*(?:[.,]\d*)?$/.test(next)) setDraft(next);
+      }}
+      onBlur={commit}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") event.currentTarget.blur();
+      }}
+    />
+  );
+}
+
+function formatDecimal(value: number): string {
+  return String(value).replace(".", ",");
+}

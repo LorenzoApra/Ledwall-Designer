@@ -1,12 +1,12 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Ledwall Designer",
-  "version": "0.1.2",
+  "version": "0.1.4",
   "identifier": "com.ats.ledwalldesigner",
   "build": {
-    "beforeDevCommand": "pnpm dev",
+    "beforeDevCommand": "node node_modules/vite/bin/vite.js",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "pnpm build",
+    "beforeBuildCommand": "node node_modules/typescript/bin/tsc -b && node node_modules/vite/bin/vite.js build",
     "frontendDist": "../dist"
   },
   "app": {

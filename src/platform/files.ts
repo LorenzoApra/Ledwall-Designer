@@ -15,12 +15,13 @@ export async function saveProjectFile(
   existingPath?: string,
 ): Promise<SavedFile | null> {
   const contents = JSON.stringify(project, null, 2);
+  const defaultName = versionedFilename(project, undefined, "lwd");
   if (isTauriRuntime()) {
     const path =
-      existingPath ??
+      (existingPath ? replaceFilename(existingPath, defaultName) : undefined) ??
       (await save({
         title: "Salva progetto Ledwall Designer",
-        defaultPath: `${sanitizeFilename(project.metadata.projectName)}.lwd`,
+        defaultPath: defaultName,
         filters: [{ name: "Progetto Ledwall Designer", extensions: ["lwd"] }],
       }));
     if (!path) return null;
@@ -30,9 +31,9 @@ export async function saveProjectFile(
 
   downloadBlob(
     new Blob([contents], { type: "application/json" }),
-    `${sanitizeFilename(project.metadata.projectName)}.lwd`,
+    defaultName,
   );
-  return { path: `${sanitizeFilename(project.metadata.projectName)}.lwd` };
+  return { path: defaultName };
 }
 
 export async function openProjectFile(): Promise<{ project: LedwallProject; path?: string } | null> {
@@ -91,6 +92,22 @@ export function sanitizeFilename(value: string): string {
   );
 }
 
+export function versionedFilename(
+  project: LedwallProject,
+  label: string | undefined,
+  extension: string,
+): string {
+  const revision = sanitizeFilename(project.metadata.revision || "01");
+  const parts = [sanitizeFilename(project.metadata.projectName), `Rev ${revision}`];
+  if (label) parts.push(sanitizeFilename(label));
+  return `${parts.join(" - ")}.${extension.replace(/^\./, "")}`;
+}
+
+function replaceFilename(path: string, filename: string): string {
+  const separatorIndex = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
+  return separatorIndex >= 0 ? `${path.slice(0, separatorIndex + 1)}${filename}` : filename;
+}
+
 function parseProject(contents: string): LedwallProject {
   const project = JSON.parse(contents) as Partial<LedwallProject>;
   if (
@@ -110,6 +127,7 @@ function parseProject(contents: string): LedwallProject {
     ...screen,
     suspensionPoints: screen.suspensionPoints ?? [],
     supportPlates: screen.supportPlates ?? [],
+    flybars: screen.flybars ?? [],
   }));
   normalized.powerLines = normalized.powerLines ?? [];
   normalized.rigging = {

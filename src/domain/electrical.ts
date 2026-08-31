@@ -15,7 +15,7 @@ export function createAutomaticPowerLines(
   settings: ElectricalSettings,
 ): PowerLine[] {
   const modelById = new Map(libraries.cabinets.map((model) => [model.id, model]));
-  const ordered = [...cabinets].sort(
+  const ordered = cabinets.filter((cabinet) => !cabinet.excludeFromPixelmap).sort(
     (a, b) => a.screenId.localeCompare(b.screenId) || a.row - b.row || a.column - b.column,
   );
   const lineLimitW = settings.voltageV * settings.breakerA * (settings.utilizationPercent / 100);

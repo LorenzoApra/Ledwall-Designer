@@ -12,7 +12,11 @@ function readLibraries(): AppLibraries {
     if (!Array.isArray(parsed.cabinets) || !Array.isArray(parsed.controllers)) {
       return structuredClone(DEFAULT_LIBRARIES);
     }
-    return parsed;
+    return {
+      ...parsed,
+      flybars: Array.isArray(parsed.flybars) ? parsed.flybars : structuredClone(DEFAULT_LIBRARIES.flybars),
+      accessories: Array.isArray(parsed.accessories) ? parsed.accessories : structuredClone(DEFAULT_LIBRARIES.accessories),
+    };
   } catch {
     return structuredClone(DEFAULT_LIBRARIES);
   }
@@ -34,4 +38,3 @@ export function useLibraries() {
 
   return { libraries, setLibraries, resetLibraries };
 }
-

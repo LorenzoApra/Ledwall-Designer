@@ -125,6 +125,40 @@ export interface SupportPlate {
   automatic: boolean;
 }
 
+export type FlybarMode = "hanging" | "ground";
+
+export interface FlybarModel {
+  id: string;
+  manufacturer: string;
+  name: string;
+  widthMm: number;
+  weightKg: number;
+  maxLoadKg: number;
+  supportedModes: FlybarMode[];
+  notes?: string;
+  sourceLabel?: string;
+}
+
+export interface AccessoryModel {
+  id: string;
+  manufacturer: string;
+  name: string;
+  category: "connector" | "plate" | "rigging" | "other";
+  weightKg: number;
+  notes?: string;
+  sourceLabel?: string;
+}
+
+export interface FlybarInstance {
+  id: string;
+  modelId: string;
+  label: string;
+  mode: FlybarMode;
+  xMm: number;
+  yMm: number;
+  cabinetIds: string[];
+}
+
 export interface LedScreen {
   id: string;
   name: string;
@@ -134,6 +168,7 @@ export interface LedScreen {
   pixelmap: PixelmapOptions;
   suspensionPoints: SuspensionPoint[];
   supportPlates: SupportPlate[];
+  flybars: FlybarInstance[];
 }
 
 export interface PowerLine {
@@ -188,6 +223,8 @@ export interface LedwallProject {
 export interface AppLibraries {
   cabinets: CabinetModel[];
   controllers: ControllerModel[];
+  flybars: FlybarModel[];
+  accessories: AccessoryModel[];
 }
 
 export interface CapacityResult {
@@ -220,4 +257,16 @@ export interface SuspensionPointMetrics {
   cabinetWeightKg: number;
   estimatedAccessoryWeightKg: number;
   totalWeightKg: number;
+}
+
+export interface FlybarMetrics {
+  flybar: FlybarInstance;
+  model?: FlybarModel;
+  cabinetWeightKg: number;
+  cableAndAccessoryWeightKg: number;
+  plateWeightKg: number;
+  supportedLoadKg: number;
+  flybarWeightKg: number;
+  utilizationPercent: number;
+  valid: boolean;
 }

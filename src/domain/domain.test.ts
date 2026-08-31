@@ -9,6 +9,8 @@ import {
 } from "./electrical";
 import { createCabinetGrid } from "./layout";
 import { createAutomaticSupportPlates } from "./supportPlates";
+import { parseRcfgXml } from "./rcfg";
+import { calculateFlybarMetrics } from "./flybars";
 import {
   appendCabinetToPortRun,
   createAutoWiring,
@@ -84,6 +86,28 @@ describe("motore Ledwall Designer", () => {
     expect(result.runs).toHaveLength(2);
     expect(result.runs.flatMap((run) => run.cabinetIds)).toHaveLength(80);
     expect(new Set(result.runs.flatMap((run) => run.cabinetIds)).size).toBe(80);
+  });
+
+  it("esclude i cabinet fuori pixelmap dai cablaggi automatici", () => {
+    const project = createDefaultProject();
+    const grid = createCabinetGrid(project.screens[0], DEFAULT_LIBRARIES.cabinets[0], {
+      rows: 2,
+      columns: 4,
+      rotation: 0,
+    });
+    grid[2].excludeFromPixelmap = true;
+    grid[6].excludeFromPixelmap = true;
+    const wiring = createAutoWiring(
+      project.screens[0],
+      grid,
+      project.controllers[0],
+      DEFAULT_LIBRARIES,
+    );
+    const power = createAutomaticPowerLines(grid, DEFAULT_LIBRARIES, project.electrical);
+    expect(wiring.runs.flatMap((run) => run.cabinetIds)).toHaveLength(6);
+    expect(power.flatMap((line) => line.cabinetIds)).toHaveLength(6);
+    expect(wiring.runs.flatMap((run) => run.cabinetIds)).not.toContain(grid[2].id);
+    expect(power.flatMap((line) => line.cabinetIds)).not.toContain(grid[6].id);
   });
 
   it("costruisce, corregge e scollega un percorso manuale", () => {
@@ -169,7 +193,7 @@ describe("motore Ledwall Designer", () => {
     expect(metrics[0].totalWeightKg).toBeCloseTo(70.6, 5);
   });
 
-  it("genera le piastre MG7S ai giunti interni da 4 m di altezza", () => {
+  it("genera una fila di piastre MG7S sul bordo superiore a 4 m", () => {
     const project = createDefaultProject();
     const screen = project.screens[0];
     const cabinets = createCabinetGrid(screen, DEFAULT_LIBRARIES.cabinets[0], {
@@ -185,7 +209,22 @@ describe("motore Ledwall Designer", () => {
     );
     expect(plan.required).toBe(true);
     expect(plan.heightMm).toBe(4000);
-    expect(plan.plates).toHaveLength(28);
+    expect(plan.plates).toHaveLength(4);
+    expect(plan.plates.every((plate) => plate.yMm === 0)).toBe(true);
+    expect(plan.plates.every((plate) => plate.cabinetIds.length === 2)).toBe(true);
+  });
+
+  it("genera la fila a 4 m dal bordo inferiore per uno schermo da 6 m", () => {
+    const project = createDefaultProject();
+    const screen = project.screens[0];
+    const cabinets = createCabinetGrid(screen, DEFAULT_LIBRARIES.cabinets[0], {
+      rows: 12,
+      columns: 5,
+      rotation: 0,
+    });
+    const plan = createAutomaticSupportPlates(screen, cabinets, DEFAULT_LIBRARIES, "simple");
+    expect(plan.plates).toHaveLength(4);
+    expect(plan.plates.every((plate) => plate.yMm === 2000)).toBe(true);
     expect(plan.plates.every((plate) => plate.cabinetIds.length === 4)).toBe(true);
   });
 
@@ -204,6 +243,55 @@ describe("motore Ledwall Designer", () => {
       "aliscaf",
     );
     expect(plan.warnings.some((warning) => warning.includes("12 m"))).toBe(true);
+  });
+
+  it("include il peso delle piastre nel totale e lo ripartisce sui punti", () => {
+    const project = createDefaultProject();
+    const screen = project.screens[0];
+    const cabinets = createCabinetGrid(screen, DEFAULT_LIBRARIES.cabinets[0], {
+      rows: 8,
+      columns: 5,
+      rotation: 0,
+    });
+    project.cabinets = cabinets;
+    screen.cabinetIds = cabinets.map((cabinet) => cabinet.id);
+    screen.suspensionPoints = createAutomaticSuspensionPoints(
+      screen,
+      cabinets,
+      DEFAULT_LIBRARIES,
+    );
+    screen.supportPlates = createAutomaticSupportPlates(
+      screen,
+      cabinets,
+      DEFAULT_LIBRARIES,
+      "simple",
+    ).plates;
+    project.rigging.simplePlateWeightKg = 0.5;
+
+    expect(calculateEstimatedProjectWeightKg(project, DEFAULT_LIBRARIES)).toBeCloseTo(355);
+    const pointTotal = calculateSuspensionMetrics(project, DEFAULT_LIBRARIES)
+      .reduce((sum, metric) => sum + metric.totalWeightKg, 0);
+    expect(pointTotal).toBeCloseTo(355);
+  });
+
+  it("calcola carico, portata e peso proprio di una flybar", () => {
+    const project = createDefaultProject();
+    const screen = project.screens[0];
+    const libraries = structuredClone(DEFAULT_LIBRARIES);
+    libraries.flybars[0].weightKg = 5;
+    const cabinets = createCabinetGrid(screen, libraries.cabinets[0], {
+      rows: 8,
+      columns: 1,
+      rotation: 0,
+    });
+    project.cabinets = cabinets;
+    screen.cabinetIds = cabinets.map((cabinet) => cabinet.id);
+    screen.flybars = [{ id: "fb-1", modelId: libraries.flybars[0].id, label: "FB1", mode: "hanging", xMm: 0, yMm: 0, cabinetIds: cabinets.map((cabinet) => cabinet.id) }];
+    const metric = calculateFlybarMetrics(project, libraries)[0];
+    expect(metric.supportedLoadKg).toBeCloseTo(65.6);
+    expect(metric.utilizationPercent).toBeCloseTo(32.8);
+    expect(metric.valid).toBe(true);
+    expect(calculateEstimatedProjectWeightKg(project, libraries)).toBeCloseTo(70.6);
   });
 
   it("mostra il peso stimato anche prima di generare i punti", () => {
@@ -226,5 +314,27 @@ describe("motore Ledwall Designer", () => {
       DEFAULT_LIBRARIES,
     );
     expect(calculateEstimatedProjectWeightKg(project, DEFAULT_LIBRARIES)).toBeCloseTo(353);
+  });
+
+  it("legge i dati tecnici essenziali da un XML RCFG NovaStar", () => {
+    const data = parseRcfgXml("test.rcfg", `
+      <ScanBoardProperty>
+        <ConfigFileVersion><ScanBoardName>A8s-N</ScanBoardName></ConfigFileVersion>
+        <StandardLedModuleProp>
+          <ModulePixelCols>64</ModulePixelCols>
+          <ModulePixelRows>22</ModulePixelRows>
+          <ScanType>Scan_11</ScanType>
+        </StandardLedModuleProp>
+        <Width>128</Width><Height>128</Height>
+      </ScanBoardProperty>
+    `);
+    expect(data).toMatchObject({
+      pixelWidth: 128,
+      pixelHeight: 128,
+      modulePixelWidth: 64,
+      modulePixelHeight: 22,
+      scan: "1/11",
+      receivingCard: "A8s-N",
+    });
   });
 });

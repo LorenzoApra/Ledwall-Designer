@@ -1,6 +1,6 @@
 [package]
 name = "ledwall-designer"
-version = "0.1.2"
+version = "0.1.4"
 description = "Progettazione tecnica di ledwall NovaStar"
 authors = ["ATS"]
 edition = "2021"

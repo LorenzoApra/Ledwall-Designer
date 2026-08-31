@@ -1,4 +1,4 @@
-import type { AppLibraries, CabinetModel, ControllerModel } from "../domain/types";
+import type { AccessoryModel, AppLibraries, CabinetModel, ControllerModel, FlybarModel } from "../domain/types";
 
 export const DEFAULT_CABINETS: CabinetModel[] = [
   {
@@ -158,8 +158,29 @@ export const DEFAULT_CONTROLLERS: ControllerModel[] = [
   },
 ];
 
+export const DEFAULT_FLYBARS: FlybarModel[] = [
+  {
+    id: "yestech-mg7s-aluminum-hanging-beam",
+    manufacturer: "Yestech",
+    name: "MG7S Aluminum Hanging Beam",
+    widthMm: 500,
+    weightKg: 0,
+    maxLoadKg: 200,
+    supportedModes: ["hanging", "ground"],
+    notes: "Portata di lavoro 200 kg con 4 fori e coefficiente 6:1. Peso proprio da compilare. Utilizzabile sospesa o come supporto a terra.",
+    sourceLabel: "P3.9MG7SO21 User manual, figure 3.1.1.1-3.1.2.2",
+  },
+];
+
+export const DEFAULT_ACCESSORIES: AccessoryModel[] = [
+  { id: "yestech-mg7s-c-connector", manufacturer: "Yestech", name: "MG7S C-connector", category: "connector", weightKg: 0, notes: "Connettore verticale e di giunzione tra hanging beam. Peso da compilare." },
+  { id: "yestech-mg7s-b-connector", manufacturer: "Yestech", name: "MG7S B-connector", category: "connector", weightKg: 0, notes: "Connettore orizzontale. Peso da compilare." },
+  { id: "yestech-mg7s-connecting-piece", manufacturer: "Yestech", name: "MG7S Connecting Piece", category: "plate", weightKg: 0, notes: "Obbligatorio da 4 m di altezza sospesa. Peso da compilare." },
+];
+
 export const DEFAULT_LIBRARIES: AppLibraries = {
   cabinets: DEFAULT_CABINETS,
   controllers: DEFAULT_CONTROLLERS,
+  flybars: DEFAULT_FLYBARS,
+  accessories: DEFAULT_ACCESSORIES,
 };
-

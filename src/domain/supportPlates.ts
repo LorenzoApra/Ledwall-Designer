@@ -67,35 +67,52 @@ export function createAutomaticSupportPlates(
   const near = (a: number, b: number) => Math.abs(a - b) <= tolerance;
   const plates: SupportPlate[] = [];
 
-  for (const topLeft of items) {
-    const topRight = items.find(
-      (item) => near(item.left, topLeft.right) && near(item.top, topLeft.top),
-    );
-    const bottomLeft = items.find(
-      (item) => near(item.left, topLeft.left) && near(item.top, topLeft.bottom),
-    );
-    const bottomRight = items.find(
-      (item) =>
-        near(item.left, topLeft.right) && near(item.top, topLeft.bottom),
-    );
-    if (!topRight || !bottomLeft || !bottomRight) continue;
-    plates.push({
-      id: createId("support-plate"),
-      type,
-      xMm: topLeft.right,
-      yMm: topLeft.bottom,
-      cabinetIds: [
-        topLeft.cabinet.id,
-        topRight.cabinet.id,
-        bottomLeft.cabinet.id,
-        bottomRight.cabinet.id,
-      ],
-      automatic: true,
-    });
+  // Il manuale MG7S indica una sola fila di connecting pieces a 4 m dal
+  // bordo inferiore. In precedenza veniva marcato ogni giunto 2x2 dello
+  // schermo, producendo decine di piastre non pertinenti.
+  const targetY = maxY - requirementHeightMm;
+  if (near(targetY, minY)) {
+    const topRow = items
+      .filter((item) => near(item.top, minY))
+      .sort((a, b) => a.left - b.left);
+    for (const left of topRow) {
+      const right = topRow.find((item) => near(item.left, left.right));
+      if (!right) continue;
+      plates.push({
+        id: createId("support-plate"),
+        type,
+        xMm: left.right,
+        yMm: minY,
+        cabinetIds: [left.cabinet.id, right.cabinet.id],
+        automatic: true,
+      });
+    }
+  } else {
+    const upperItems = items.filter((item) => near(item.bottom, targetY));
+    const lowerItems = items.filter((item) => near(item.top, targetY));
+    for (const upperLeft of upperItems) {
+      const upperRight = upperItems.find((item) => near(item.left, upperLeft.right));
+      const lowerLeft = lowerItems.find((item) => near(item.left, upperLeft.left));
+      const lowerRight = lowerItems.find((item) => near(item.left, upperLeft.right));
+      if (!upperRight || !lowerLeft || !lowerRight) continue;
+      plates.push({
+        id: createId("support-plate"),
+        type,
+        xMm: upperLeft.right,
+        yMm: targetY,
+        cabinetIds: [
+          upperLeft.cabinet.id,
+          upperRight.cabinet.id,
+          lowerLeft.cabinet.id,
+          lowerRight.cabinet.id,
+        ],
+        automatic: true,
+      });
+    }
   }
 
   const warnings = [
-    `Altezza ${(heightMm / 1000).toFixed(2)} m: generate ${plates.length} piastre ai giunti interni tra quattro cabinet.`,
+    `Altezza ${(heightMm / 1000).toFixed(2)} m: generate ${plates.length} piastre sulla fila a ${(requirementHeightMm / 1000).toFixed(2)} m dal bordo inferiore.`,
   ];
   if (heightMm > 12_000) {
     warnings.push(

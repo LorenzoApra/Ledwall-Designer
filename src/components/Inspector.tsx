@@ -3,19 +3,25 @@ import { calculateControllerCapacity, calculatePortMetrics } from "../domain/cap
 import { calculatePowerLineMetrics } from "../domain/electrical";
 import { cabinetPhysicalSize, cabinetPixelSize, calculateScreenPixelBounds } from "../domain/geometry";
 import { createId } from "../domain/id";
+import { createAutomaticSupportPlates } from "../domain/supportPlates";
+import { parseRcfgFile } from "../domain/rcfg";
 import { calculateProjectTotals } from "../domain/projectMetrics";
+import { calculateFlybarMetrics } from "../domain/flybars";
 import { calculateEstimatedProjectWeightKg, calculateSuspensionMetrics } from "../domain/weight";
 import type {
   AppLibraries,
+  AccessoryModel,
   BitDepth,
   CabinetInstance,
   CabinetModel,
   ControllerModel,
+  FlybarMode,
+  FlybarModel,
   LedwallProject,
   Rotation,
   SupportPlateType,
 } from "../domain/types";
-import { Field, Metric, Section, Toggle } from "./Ui";
+import { DecimalInput, Field, Metric, Section, Toggle } from "./Ui";
 
 export type InspectorPanel = "project" | "design" | "data" | "power" | "weight" | "pixelmap" | "library" | "output";
 
@@ -187,7 +193,7 @@ function DesignPanel(props: InspectorProps) {
 
       <Section title={`Selezione (${selectedCabinets.length})`}>
         <p className="empty-copy">
-          Clic normale per selezionare un cabinet; Cmd/Ctrl/Shift + clic per aggiungerlo o rimuoverlo dalla selezione.
+          Clic normale: singolo · Cmd/Ctrl + clic: aggiungi/rimuovi · Shift + clic: intera riga · Cmd/Ctrl+A: tutto il canvas.
         </p>
         <div className="button-row">
           <button className="button secondary grow" onClick={props.onSelectAllCabinetsInScreen}>Tutto lo schermo</button>
@@ -250,6 +256,25 @@ function DataPanel(props: InspectorProps) {
   const portMetrics = controller ? calculatePortMetrics(project, libraries, controller) : [];
   const selectedAssignment = controller?.portRuns.find((run) => run.cabinetIds.includes(props.selectedCabinetId ?? ""));
   const selectedCabinet = project.cabinets.find((cabinet) => cabinet.id === props.selectedCabinetId);
+  const selectedCabinets = project.cabinets.filter((cabinet) =>
+    props.selectedCabinetIds.includes(cabinet.id),
+  );
+  const selectedPortNumbers = new Set(
+    selectedCabinets
+      .map((cabinet) =>
+        controller?.portRuns.find((run) => run.cabinetIds.includes(cabinet.id))
+          ?.portNumber,
+      )
+      .filter((value): value is number => value !== undefined),
+  );
+  const commonPortNumber =
+    selectedCabinets.length > 0 &&
+    selectedPortNumbers.size === 1 &&
+    selectedCabinets.every((cabinet) =>
+      controller?.portRuns.some((run) => run.cabinetIds.includes(cabinet.id)),
+    )
+      ? [...selectedPortNumbers][0]
+      : undefined;
   const activeTraceRun = controller?.portRuns.find((run) => run.portNumber === props.manualTracePort);
   const updateController = (patch: Partial<typeof controller>) => {
     if (!controller) return;
@@ -311,25 +336,25 @@ function DataPanel(props: InspectorProps) {
           <>
             {selectedCabinet && (
               <div className="info-strip">
-                Cabinet selezionato: {selectedCabinet.row},{selectedCabinet.column}
+                {selectedCabinets.length} cabinet selezionati · ultimo: {selectedCabinet.row},{selectedCabinet.column}
                 {selectedAssignment
                   ? ` · P-${selectedAssignment.portNumber} · ordine ${selectedAssignment.cabinetIds.indexOf(selectedCabinet.id) + 1}`
                   : " · non cablato"}
               </div>
             )}
             <Field label="Porta di partenza">
-              <select value={selectedAssignment?.portNumber ?? ""} onChange={(event) => props.onAssignSelectedCabinet(event.target.value ? Number(event.target.value) : undefined)}>
+              <select value={commonPortNumber ?? ""} onChange={(event) => props.onAssignSelectedCabinet(event.target.value ? Number(event.target.value) : undefined)}>
                 <option value="">Non assegnato</option>
                 {Array.from({ length: model?.ethernetPorts ?? 0 }, (_, index) => <option key={index + 1} value={index + 1}>Porta {index + 1}</option>)}
               </select>
             </Field>
             <div className="button-row">
-              <button className="button secondary grow" disabled={!selectedAssignment} onClick={() => props.onMoveCabinetInRun(-1)}>Prima</button>
-              <button className="button secondary grow" disabled={!selectedAssignment} onClick={() => props.onMoveCabinetInRun(1)}>Dopo</button>
+              <button className="button secondary grow" disabled={!selectedAssignment || selectedCabinets.length !== 1} onClick={() => props.onMoveCabinetInRun(-1)}>Prima</button>
+              <button className="button secondary grow" disabled={!selectedAssignment || selectedCabinets.length !== 1} onClick={() => props.onMoveCabinetInRun(1)}>Dopo</button>
             </div>
             <button
               className="button danger full"
-              disabled={!selectedAssignment}
+              disabled={selectedPortNumbers.size === 0}
               onClick={() => props.onAssignSelectedCabinet(undefined)}
             >
               Rimuovi cabinet dalla porta
@@ -390,9 +415,28 @@ function PowerPanel(props: InspectorProps) {
   const selectedCabinet = project.cabinets.find(
     (cabinet) => cabinet.id === props.selectedCabinetId,
   );
+  const selectedCabinets = project.cabinets.filter((cabinet) =>
+    props.selectedCabinetIds.includes(cabinet.id),
+  );
   const selectedAssignment = project.powerLines.find((line) =>
     line.cabinetIds.includes(props.selectedCabinetId ?? ""),
   );
+  const selectedLineNumbers = new Set(
+    selectedCabinets
+      .map((cabinet) =>
+        project.powerLines.find((line) => line.cabinetIds.includes(cabinet.id))
+          ?.lineNumber,
+      )
+      .filter((value): value is number => value !== undefined),
+  );
+  const commonLineNumber =
+    selectedCabinets.length > 0 &&
+    selectedLineNumbers.size === 1 &&
+    selectedCabinets.every((cabinet) =>
+      project.powerLines.some((line) => line.cabinetIds.includes(cabinet.id)),
+    )
+      ? [...selectedLineNumbers][0]
+      : undefined;
   const activeTraceLine = project.powerLines.find(
     (line) => line.lineNumber === props.manualPowerLine,
   );
@@ -433,14 +477,14 @@ function PowerPanel(props: InspectorProps) {
         ) : (
           <>
             <div className="info-strip">
-              Cabinet selezionato: {selectedCabinet.row},{selectedCabinet.column}
+              {selectedCabinets.length} cabinet selezionati · ultimo: {selectedCabinet.row},{selectedCabinet.column}
               {selectedAssignment
                 ? ` · L-${selectedAssignment.lineNumber} · ordine ${selectedAssignment.cabinetIds.indexOf(selectedCabinet.id) + 1}`
                 : " · senza alimentazione"}
             </div>
             <Field label="Linea di partenza">
               <select
-                value={selectedAssignment?.lineNumber ?? ""}
+                value={commonLineNumber ?? ""}
                 onChange={(event) => props.onAssignSelectedCabinetToPowerLine(
                   event.target.value ? Number(event.target.value) : undefined,
                 )}
@@ -457,7 +501,7 @@ function PowerPanel(props: InspectorProps) {
             </Field>
             <button
               className="button danger full"
-              disabled={!selectedAssignment}
+              disabled={selectedLineNumbers.size === 0}
               onClick={() => props.onAssignSelectedCabinetToPowerLine(undefined)}
             >
               Rimuovi cabinet dalla linea
@@ -511,20 +555,177 @@ function PowerPanel(props: InspectorProps) {
 
 function WeightPanel(props: InspectorProps) {
   const { project, libraries, onProjectChange } = props;
+  const [plateType, setPlateType] = useState<SupportPlateType>("simple");
+  const [flybarModelId, setFlybarModelId] = useState(libraries.flybars[0]?.id ?? "");
+  const [flybarMode, setFlybarMode] = useState<FlybarMode>("hanging");
+  const [flybarMessage, setFlybarMessage] = useState("");
   const metrics = calculateSuspensionMetrics(project, libraries);
+  const screen = project.screens.find((item) => item.id === props.selectedScreenId) ?? project.screens[0];
+  const platePlan = screen
+    ? createAutomaticSupportPlates(
+        screen,
+        project.cabinets,
+        libraries,
+        plateType,
+        project.rigging.plateRequirementHeightMm,
+      )
+    : undefined;
   const update = (key: keyof LedwallProject["rigging"], value: number) =>
     onProjectChange((current) => ({ ...current, rigging: { ...current.rigging, [key]: value } }));
   const total = calculateEstimatedProjectWeightKg(project, libraries);
+  const flybarMetrics = calculateFlybarMetrics(project, libraries).filter((metric) =>
+    screen?.flybars.some((flybar) => flybar.id === metric.flybar.id),
+  );
+
+  function addFlybarsFromSelection(): void {
+    if (!screen) return;
+    const model = libraries.flybars.find((item) => item.id === flybarModelId);
+    const selected = project.cabinets.filter((cabinet) =>
+      cabinet.screenId === screen.id && props.selectedCabinetIds.includes(cabinet.id),
+    );
+    if (!model || !selected.length) {
+      setFlybarMessage("Seleziona almeno un cabinet: verrà creata una flybar per ogni colonna selezionata.");
+      return;
+    }
+    if (!model.supportedModes.includes(flybarMode)) {
+      setFlybarMessage("La modalità scelta non è prevista dal modello di flybar.");
+      return;
+    }
+    const columns = [...new Set(selected.map((cabinet) => cabinet.column))].sort((a, b) => a - b);
+    const screenCabinets = project.cabinets.filter((cabinet) => cabinet.screenId === screen.id);
+    const existingCount = screen.flybars.length;
+    const flybars = columns.map((column, index) => {
+      const columnCabinets = screenCabinets.filter((cabinet) => cabinet.column === column);
+      const left = Math.min(...columnCabinets.map((cabinet) => cabinet.physicalXmm));
+      const top = Math.min(...columnCabinets.map((cabinet) => cabinet.physicalYmm));
+      const bottom = Math.max(...columnCabinets.map((cabinet) => {
+        const cabinetModel = libraries.cabinets.find((item) => item.id === cabinet.modelId);
+        return cabinet.physicalYmm + (cabinetModel ? cabinetPhysicalSize(cabinet, cabinetModel).height : 0);
+      }));
+      return {
+        id: createId("flybar"),
+        modelId: model.id,
+        label: `FB${existingCount + index + 1}`,
+        mode: flybarMode,
+        xMm: left,
+        yMm: flybarMode === "hanging" ? top : bottom,
+        cabinetIds: columnCabinets.map((cabinet) => cabinet.id),
+      };
+    });
+    onProjectChange((current) => ({
+      ...current,
+      screens: current.screens.map((item) => item.id === screen.id
+        ? { ...item, flybars: [...item.flybars, ...flybars] }
+        : item),
+    }));
+    setFlybarMessage(`${flybars.length} flybar aggiunte manualmente alle colonne selezionate.`);
+  }
   return (
     <>
       <Section title="Stime accessori">
-        <Field label="Cavi kg/cabinet"><input type="number" min="0" step="0.05" value={project.rigging.cableKgPerCabinet} onChange={(event) => update("cableKgPerCabinet", Number(event.target.value))} /></Field>
-        <Field label="U-shape/piastre kg/cabinet"><input type="number" min="0" step="0.05" value={project.rigging.accessoryKgPerCabinet} onChange={(event) => update("accessoryKgPerCabinet", Number(event.target.value))} /></Field>
+        <Field label="Cavi kg/cabinet"><DecimalInput min={0} value={project.rigging.cableKgPerCabinet} onChange={(value) => update("cableKgPerCabinet", value)} /></Field>
+        <Field label="U-shape/piastre kg/cabinet"><DecimalInput min={0} value={project.rigging.accessoryKgPerCabinet} onChange={(value) => update("accessoryKgPerCabinet", value)} /></Field>
         <Field
           label="Hardware sospensione kg/punto"
           hint="Quota stimata di hanging bar, giunti e grilli attribuita a ciascun punto; non è la portata del punto."
-        ><input type="number" min="0" step="0.1" value={project.rigging.hangingBarKgPerPoint} onChange={(event) => update("hangingBarKgPerPoint", Number(event.target.value))} /></Field>
+        ><DecimalInput min={0} value={project.rigging.hangingBarKgPerPoint} onChange={(value) => update("hangingBarKgPerPoint", value)} /></Field>
+        <div className="two-columns">
+          <Field label="Piastra semplice kg"><DecimalInput min={0} value={project.rigging.simplePlateWeightKg} onChange={(value) => update("simplePlateWeightKg", value)} /></Field>
+          <Field label="Piastra aliscaf kg"><DecimalInput min={0} value={project.rigging.aliscafPlateWeightKg} onChange={(value) => update("aliscafPlateWeightKg", value)} /></Field>
+        </div>
         <button className="button primary full" onClick={props.onAutoSuspension}>Genera punti per colonna</button>
+      </Section>
+      <Section title="Piastre di sostegno MG7S">
+        <Field
+          label="Soglia automatica mm"
+          hint="Il manuale richiede le piastre da 4.000 mm (8 cabinet MG7S) e un rinforzo/consulto tecnico oltre 12 m."
+        >
+          <input type="number" min="0" step="500" value={project.rigging.plateRequirementHeightMm} onChange={(event) => update("plateRequirementHeightMm", Number(event.target.value))} />
+        </Field>
+        <Field label="Tipo piastra">
+          <select value={plateType} onChange={(event) => setPlateType(event.target.value as SupportPlateType)}>
+            <option value="simple">Piastra semplice</option>
+            <option value="aliscaf">Piastra con aliscaf per truss</option>
+          </select>
+        </Field>
+        {platePlan && (
+          <div className="info-strip">
+            Altezza schermo: {(platePlan.heightMm / 1000).toFixed(2)} m · {platePlan.required ? `${platePlan.plates.length} piastre automatiche previste` : "sotto soglia"}
+          </div>
+        )}
+        <div className="button-row">
+          <button className="button primary grow" disabled={!screen} onClick={() => props.onAutoSupportPlates(plateType)}>Genera automatiche</button>
+          <button className="button secondary grow" disabled={!screen} onClick={() => props.onAddManualSupportPlate(plateType)}>Aggiungi manuale</button>
+        </div>
+        {platePlan?.warnings.map((warning) => (
+          <p className="warning-copy" key={warning}>{warning}</p>
+        ))}
+        <div className="run-list">
+          {(screen?.supportPlates ?? []).map((plate, index) => (
+            <div className="run-card" key={plate.id}>
+              <div className="run-card-title">
+                <strong>Piastra {index + 1}</strong>
+                <span>{plate.automatic ? "AUTO" : "MANUALE"}</span>
+              </div>
+              <Field label="Tipo">
+                <select value={plate.type} onChange={(event) => onProjectChange((current) => ({
+                  ...current,
+                  screens: current.screens.map((item) => item.id === screen?.id ? {
+                    ...item,
+                    supportPlates: item.supportPlates.map((candidate) => candidate.id === plate.id ? { ...candidate, type: event.target.value as SupportPlateType, automatic: false } : candidate),
+                  } : item),
+                }))}>
+                  <option value="simple">Semplice</option>
+                  <option value="aliscaf">Con aliscaf</option>
+                </select>
+              </Field>
+              <div className="two-columns">
+                <Field label="X mm"><input type="number" value={plate.xMm} onChange={(event) => onProjectChange((current) => ({ ...current, screens: current.screens.map((item) => item.id === screen?.id ? { ...item, supportPlates: item.supportPlates.map((candidate) => candidate.id === plate.id ? { ...candidate, xMm: Number(event.target.value), automatic: false } : candidate) } : item) }))} /></Field>
+                <Field label="Y mm"><input type="number" value={plate.yMm} onChange={(event) => onProjectChange((current) => ({ ...current, screens: current.screens.map((item) => item.id === screen?.id ? { ...item, supportPlates: item.supportPlates.map((candidate) => candidate.id === plate.id ? { ...candidate, yMm: Number(event.target.value), automatic: false } : candidate) } : item) }))} /></Field>
+              </div>
+              <button className="button danger full" onClick={() => onProjectChange((current) => ({ ...current, screens: current.screens.map((item) => item.id === screen?.id ? { ...item, supportPlates: item.supportPlates.filter((candidate) => candidate.id !== plate.id) } : item) }))}>Elimina piastra</button>
+            </div>
+          ))}
+        </div>
+      </Section>
+      <Section title="Flybar manuali">
+        <Field label="Modello">
+          <select value={flybarModelId} onChange={(event) => {
+            const id = event.target.value;
+            setFlybarModelId(id);
+            const model = libraries.flybars.find((item) => item.id === id);
+            if (model && !model.supportedModes.includes(flybarMode)) setFlybarMode(model.supportedModes[0] ?? "hanging");
+          }}>
+            {libraries.flybars.map((model) => <option key={model.id} value={model.id}>{model.manufacturer} {model.name}</option>)}
+          </select>
+        </Field>
+        <Field label="Installazione">
+          <select value={flybarMode} onChange={(event) => setFlybarMode(event.target.value as FlybarMode)}>
+            <option value="hanging">Sospesa</option>
+            <option value="ground">In appoggio</option>
+          </select>
+        </Field>
+        <button className="button primary full" disabled={!screen || !libraries.flybars.length} onClick={addFlybarsFromSelection}>
+          Aggiungi alle colonne selezionate
+        </button>
+        {flybarMessage && <div className="info-strip">{flybarMessage}</div>}
+        <p className="warning-copy">Il manuale MG7S consente l'hanging beam sia sospesa sia come supporto a terra. La portata deve essere verificata sul modello reale.</p>
+        <div className="run-list">
+          {flybarMetrics.map((metric) => (
+            <div className={`run-card ${metric.valid ? "" : "invalid"}`} key={metric.flybar.id}>
+              <div className="run-card-title"><strong>{metric.flybar.label}</strong><span>{metric.flybar.mode === "hanging" ? "SOSPESA" : "APPOGGIO"}</span></div>
+              <small>{metric.model?.manufacturer} {metric.model?.name}</small>
+              <small><strong>{metric.supportedLoadKg.toFixed(1)} kg supportati / {metric.model?.maxLoadKg.toFixed(1) ?? "0"} kg</strong></small>
+              <small>{metric.cabinetWeightKg.toFixed(1)} kg cabinet + {metric.cableAndAccessoryWeightKg.toFixed(1)} kg cavi/accessori + {metric.plateWeightKg.toFixed(1)} kg piastre</small>
+              <small>Peso flybar: {metric.flybarWeightKg.toFixed(1)} kg · utilizzo {metric.utilizationPercent.toFixed(1)}%</small>
+              <div className="two-columns">
+                <Field label="X mm"><input type="number" value={metric.flybar.xMm} onChange={(event) => onProjectChange((current) => ({ ...current, screens: current.screens.map((item) => item.id === screen?.id ? { ...item, flybars: item.flybars.map((flybar) => flybar.id === metric.flybar.id ? { ...flybar, xMm: Number(event.target.value) } : flybar) } : item) }))} /></Field>
+                <Field label="Y mm"><input type="number" value={metric.flybar.yMm} onChange={(event) => onProjectChange((current) => ({ ...current, screens: current.screens.map((item) => item.id === screen?.id ? { ...item, flybars: item.flybars.map((flybar) => flybar.id === metric.flybar.id ? { ...flybar, yMm: Number(event.target.value) } : flybar) } : item) }))} /></Field>
+              </div>
+              <button className="button danger full" onClick={() => onProjectChange((current) => ({ ...current, screens: current.screens.map((item) => item.id === screen?.id ? { ...item, flybars: item.flybars.filter((flybar) => flybar.id !== metric.flybar.id) } : item) }))}>Elimina flybar</button>
+            </div>
+          ))}
+        </div>
       </Section>
       <Section title="Carichi stimati">
         <Metric label="Totale sospeso" value={`${total.toFixed(1)} kg`} tone="warn" />
@@ -578,9 +779,24 @@ function PixelmapPanel(props: InspectorProps) {
 
 function LibraryPanel(props: InspectorProps) {
   const { libraries, onLibrariesChange } = props;
-  const [kind, setKind] = useState<"cabinet" | "controller">("cabinet");
+  const [kind, setKind] = useState<"cabinet" | "controller" | "flybar" | "accessory">("cabinet");
   const [selectedId, setSelectedId] = useState(libraries.cabinets[0]?.id ?? "");
-  const items = kind === "cabinet" ? libraries.cabinets : libraries.controllers;
+  const [manufacturerFilter, setManufacturerFilter] = useState("all");
+  const [importMessage, setImportMessage] = useState("");
+  const cabinetManufacturers = [...new Set(libraries.cabinets.map((entry) => entry.manufacturer).filter(Boolean))].sort();
+  const sourceItems = kind === "cabinet"
+    ? libraries.cabinets
+    : kind === "flybar"
+      ? libraries.flybars
+      : kind === "accessory"
+        ? libraries.accessories
+        : libraries.controllers;
+  const manufacturers = kind === "controller"
+    ? []
+    : [...new Set(sourceItems.map((entry) => entry.manufacturer).filter(Boolean))].sort();
+  const items = kind === "controller" || manufacturerFilter === "all"
+    ? sourceItems
+    : sourceItems.filter((entry) => entry.manufacturer === manufacturerFilter);
   const item = items.find((entry) => entry.id === selectedId) ?? items[0];
 
   function updateCabinet(patch: Partial<CabinetModel>) {
@@ -591,30 +807,138 @@ function LibraryPanel(props: InspectorProps) {
     if (!item || kind !== "controller") return;
     onLibrariesChange({ ...libraries, controllers: libraries.controllers.map((entry) => entry.id === item.id ? { ...entry, ...patch } : entry) });
   }
+  function updateFlybar(patch: Partial<FlybarModel>) {
+    if (!item || kind !== "flybar") return;
+    onLibrariesChange({ ...libraries, flybars: libraries.flybars.map((entry) => entry.id === item.id ? { ...entry, ...patch } : entry) });
+  }
+  function updateAccessory(patch: Partial<AccessoryModel>) {
+    if (!item || kind !== "accessory") return;
+    onLibrariesChange({ ...libraries, accessories: libraries.accessories.map((entry) => entry.id === item.id ? { ...entry, ...patch } : entry) });
+  }
   function addItem() {
     if (kind === "cabinet") {
       const entry: CabinetModel = { id: createId("cabinet-model"), manufacturer: "", name: "Nuovo cabinet", widthMm: 500, heightMm: 500, depthMm: 0, pixelWidth: 128, pixelHeight: 128, pitchMm: 3.9, weightKg: 0, powerMaxW: 0, powerAverageW: 0, powerMinW: 0 };
       onLibrariesChange({ ...libraries, cabinets: [...libraries.cabinets, entry] });
       setSelectedId(entry.id);
-    } else {
+    } else if (kind === "controller") {
       const entry: ControllerModel = { id: createId("novastar-model"), manufacturer: "NovaStar", family: "MCTRL", name: "Nuovo controller NovaStar", ethernetPorts: 1, totalCapacityPixels: 650000, maxWidthPixels: 4096, maxHeightPixels: 4096, bandwidthPixelsPerSecond8Bit: 39000000, bandwidthPixelsPerSecondHighBit: 19200000, capabilities: { hdr: false, threeD: false, lowLatency: false, portBackup: true, controllerBackup: true, bitDepths: [8], frameRates: [50, 60] }, sourceUrl: "" };
       onLibrariesChange({ ...libraries, controllers: [...libraries.controllers, entry] });
+      setSelectedId(entry.id);
+    } else if (kind === "flybar") {
+      const entry: FlybarModel = { id: createId("flybar-model"), manufacturer: "", name: "Nuova flybar", widthMm: 500, weightKg: 0, maxLoadKg: 0, supportedModes: ["hanging"] };
+      onLibrariesChange({ ...libraries, flybars: [...libraries.flybars, entry] });
+      setManufacturerFilter("all");
+      setSelectedId(entry.id);
+    } else {
+      const entry: AccessoryModel = { id: createId("accessory-model"), manufacturer: "", name: "Nuovo accessorio", category: "other", weightKg: 0 };
+      onLibrariesChange({ ...libraries, accessories: [...libraries.accessories, entry] });
+      setManufacturerFilter("all");
       setSelectedId(entry.id);
     }
   }
   function removeItem() {
-    if (!item || items.length <= 1) return;
+    if (!item || sourceItems.length <= 1) return;
     if (kind === "cabinet") onLibrariesChange({ ...libraries, cabinets: libraries.cabinets.filter((entry) => entry.id !== item.id) });
-    else onLibrariesChange({ ...libraries, controllers: libraries.controllers.filter((entry) => entry.id !== item.id) });
+    else if (kind === "controller") onLibrariesChange({ ...libraries, controllers: libraries.controllers.filter((entry) => entry.id !== item.id) });
+    else if (kind === "flybar") onLibrariesChange({ ...libraries, flybars: libraries.flybars.filter((entry) => entry.id !== item.id) });
+    else onLibrariesChange({ ...libraries, accessories: libraries.accessories.filter((entry) => entry.id !== item.id) });
     setSelectedId(items.find((entry) => entry.id !== item.id)?.id ?? "");
+  }
+
+  async function importRcfg(file?: File): Promise<void> {
+    if (!file) return;
+    try {
+      const parsed = parseRcfgFile(file.name, new Uint8Array(await file.arrayBuffer()));
+      const lowerName = file.name.toLowerCase();
+      const inferredManufacturer = cabinetManufacturers.find((name) => lowerName.includes(name.toLowerCase()));
+      const matchingModel = libraries.cabinets.find((entry) =>
+        entry.pixelWidth === parsed.pixelWidth &&
+        entry.pixelHeight === parsed.pixelHeight &&
+        (!inferredManufacturer || entry.manufacturer === inferredManufacturer),
+      ) ?? libraries.cabinets.find((entry) =>
+        entry.pixelWidth === parsed.pixelWidth && entry.pixelHeight === parsed.pixelHeight,
+      );
+      const base: CabinetModel = matchingModel
+        ? { ...matchingModel }
+        : {
+            id: "",
+            manufacturer: inferredManufacturer ?? "Da definire",
+            name: "",
+            widthMm: parsed.pixelWidth,
+            heightMm: parsed.pixelHeight,
+            depthMm: 0,
+            pixelWidth: parsed.pixelWidth,
+            pixelHeight: parsed.pixelHeight,
+            pitchMm: 1,
+            weightKg: 0,
+            powerMaxW: 0,
+            powerAverageW: 0,
+            powerMinW: 0,
+          };
+      const cleanName = file.name.replace(/\.(?:rcfg|rcfgx|rfcg)$/i, "");
+      const entry: CabinetModel = {
+        ...base,
+        id: createId("cabinet-model"),
+        manufacturer: inferredManufacturer ?? base.manufacturer,
+        name: cleanName,
+        pixelWidth: parsed.pixelWidth,
+        pixelHeight: parsed.pixelHeight,
+        modulePixelWidth: parsed.modulePixelWidth,
+        modulePixelHeight: parsed.modulePixelHeight,
+        scan: parsed.scan,
+        receivingCard: parsed.receivingCard,
+        sourceLabel: `NovaStar RCFG: ${file.name}`,
+        notes: [
+          base.notes,
+          "Importato da configurazione NovaStar. Verificare misure fisiche, pitch, peso e consumi prima dell'uso.",
+        ].filter(Boolean).join(" "),
+      };
+      onLibrariesChange({ ...libraries, cabinets: [...libraries.cabinets, entry] });
+      setManufacturerFilter("all");
+      setSelectedId(entry.id);
+      setImportMessage(
+        `Importato ${parsed.pixelWidth}×${parsed.pixelHeight}px${parsed.receivingCard ? ` · ${parsed.receivingCard}` : ""}. Verifica i dati fisici evidenziati nel modello.`,
+      );
+    } catch (error) {
+      setImportMessage(error instanceof Error ? error.message : String(error));
+    }
   }
 
   return (
     <>
-      <div className="segmented"><button className={kind === "cabinet" ? "active" : ""} onClick={() => { setKind("cabinet"); setSelectedId(libraries.cabinets[0]?.id ?? ""); }}>Cabinet</button><button className={kind === "controller" ? "active" : ""} onClick={() => { setKind("controller"); setSelectedId(libraries.controllers[0]?.id ?? ""); }}>NovaStar</button></div>
+      <div className="segmented">
+        <button className={kind === "cabinet" ? "active" : ""} onClick={() => { setKind("cabinet"); setManufacturerFilter("all"); setSelectedId(libraries.cabinets[0]?.id ?? ""); }}>Cabinet</button>
+        <button className={kind === "controller" ? "active" : ""} onClick={() => { setKind("controller"); setManufacturerFilter("all"); setSelectedId(libraries.controllers[0]?.id ?? ""); }}>NovaStar</button>
+        <button className={kind === "flybar" ? "active" : ""} onClick={() => { setKind("flybar"); setManufacturerFilter("all"); setSelectedId(libraries.flybars[0]?.id ?? ""); }}>Flybar</button>
+        <button className={kind === "accessory" ? "active" : ""} onClick={() => { setKind("accessory"); setManufacturerFilter("all"); setSelectedId(libraries.accessories[0]?.id ?? ""); }}>Accessori</button>
+      </div>
       <Section title="Modelli" action={<button className="mini-button" onClick={addItem}>+ Nuovo</button>}>
+        {kind !== "controller" && (
+          <Field label="Produttore">
+            <select value={manufacturerFilter} onChange={(event) => {
+              const value = event.target.value;
+              setManufacturerFilter(value);
+              const next = value === "all" ? sourceItems[0] : sourceItems.find((entry) => entry.manufacturer === value);
+              setSelectedId(next?.id ?? "");
+            }}>
+              <option value="all">Tutti i produttori</option>
+              {manufacturers.map((manufacturer) => <option key={manufacturer} value={manufacturer}>{manufacturer}</option>)}
+            </select>
+          </Field>
+        )}
         <select value={item?.id ?? ""} onChange={(event) => setSelectedId(event.target.value)}>{items.map((entry) => <option key={entry.id} value={entry.id}>{"manufacturer" in entry ? `${entry.manufacturer} ` : ""}{entry.name}</option>)}</select>
       </Section>
+      {kind === "cabinet" && (
+        <Section title="Importa configurazione NovaStar">
+          <Field label="File RCFG / RCFGX" hint="Importa risoluzione, moduli, scan e receiving card. I dati meccanici restano modificabili.">
+            <input type="file" accept=".rcfg,.rcfgx,.rfcg" onChange={(event) => {
+              void importRcfg(event.target.files?.[0]);
+              event.currentTarget.value = "";
+            }} />
+          </Field>
+          {importMessage && <div className="info-strip">{importMessage}</div>}
+        </Section>
+      )}
       {kind === "cabinet" && item && (
         <Section title="Dati cabinet">
           {(() => { const cabinet = item as CabinetModel; return <>
@@ -640,7 +964,28 @@ function LibraryPanel(props: InspectorProps) {
           </>; })()}
         </Section>
       )}
-      <div className="button-row library-actions"><button className="button danger grow" disabled={items.length <= 1} onClick={removeItem}>Elimina modello</button><button className="button secondary grow" onClick={props.onResetLibraries}>Ripristina</button></div>
+      {kind === "flybar" && item && (
+        <Section title="Dati flybar">
+          {(() => { const flybar = item as FlybarModel; return <>
+            <div className="two-columns"><Field label="Produttore"><input value={flybar.manufacturer} onChange={(event) => updateFlybar({ manufacturer: event.target.value })} /></Field><Field label="Modello"><input value={flybar.name} onChange={(event) => updateFlybar({ name: event.target.value })} /></Field></div>
+            <div className="three-columns"><NumberField label="Lunghezza mm" value={flybar.widthMm} onChange={(value) => updateFlybar({ widthMm: value })} /><NumberField label="Peso kg" value={flybar.weightKg} step="0.1" onChange={(value) => updateFlybar({ weightKg: value })} /><NumberField label="Portata kg" value={flybar.maxLoadKg} step="0.1" onChange={(value) => updateFlybar({ maxLoadKg: value })} /></div>
+            <Toggle label="Installazione sospesa" checked={flybar.supportedModes.includes("hanging")} onChange={(checked) => updateFlybar({ supportedModes: checked ? [...new Set([...flybar.supportedModes, "hanging" as const])] : flybar.supportedModes.filter((mode) => mode !== "hanging") })} />
+            <Toggle label="Installazione in appoggio" checked={flybar.supportedModes.includes("ground")} onChange={(checked) => updateFlybar({ supportedModes: checked ? [...new Set([...flybar.supportedModes, "ground" as const])] : flybar.supportedModes.filter((mode) => mode !== "ground") })} />
+            <Field label="Note"><textarea rows={4} value={flybar.notes ?? ""} onChange={(event) => updateFlybar({ notes: event.target.value })} /></Field>
+          </>; })()}
+        </Section>
+      )}
+      {kind === "accessory" && item && (
+        <Section title="Dati accessorio">
+          {(() => { const accessory = item as AccessoryModel; return <>
+            <div className="two-columns"><Field label="Produttore"><input value={accessory.manufacturer} onChange={(event) => updateAccessory({ manufacturer: event.target.value })} /></Field><Field label="Nome"><input value={accessory.name} onChange={(event) => updateAccessory({ name: event.target.value })} /></Field></div>
+            <Field label="Categoria"><select value={accessory.category} onChange={(event) => updateAccessory({ category: event.target.value as AccessoryModel["category"] })}><option value="connector">Connettore</option><option value="plate">Piastra</option><option value="rigging">Rigging</option><option value="other">Altro</option></select></Field>
+            <NumberField label="Peso unitario kg" value={accessory.weightKg} step="0.1" onChange={(value) => updateAccessory({ weightKg: value })} />
+            <Field label="Note"><textarea rows={4} value={accessory.notes ?? ""} onChange={(event) => updateAccessory({ notes: event.target.value })} /></Field>
+          </>; })()}
+        </Section>
+      )}
+      <div className="button-row library-actions"><button className="button danger grow" disabled={sourceItems.length <= 1} onClick={removeItem}>Elimina modello</button><button className="button secondary grow" onClick={props.onResetLibraries}>Ripristina</button></div>
     </>
   );
 }
@@ -665,7 +1010,13 @@ function OutputPanel(props: InspectorProps) {
 }
 
 function NumberField({ label, value, onChange, step = "1" }: { label: string; value: number; onChange: (value: number) => void; step?: string }) {
-  return <Field label={label}><input type="number" step={step} value={value} onChange={(event) => onChange(Number(event.target.value))} /></Field>;
+  return (
+    <Field label={label}>
+      {step === "1"
+        ? <input type="number" step={step} value={value} onChange={(event) => onChange(Number(event.target.value))} />
+        : <DecimalInput value={value} onChange={onChange} />}
+    </Field>
+  );
 }
 
 function panelTitle(panel: InspectorPanel): string {

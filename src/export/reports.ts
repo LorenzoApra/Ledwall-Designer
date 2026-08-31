@@ -3,9 +3,10 @@ import { calculateControllerCapacity, calculatePortMetrics } from "../domain/cap
 import { calculatePowerLineMetrics } from "../domain/electrical";
 import { calculateScreenPixelBounds } from "../domain/geometry";
 import { calculateProjectTotals } from "../domain/projectMetrics";
-import { calculateSuspensionMetrics } from "../domain/weight";
+import { calculateFlybarMetrics } from "../domain/flybars";
 import type { AppLibraries, LedwallProject } from "../domain/types";
 import { renderWiringCanvas } from "./wiringCanvas";
+import { renderRiggingCanvas } from "./riggingCanvas";
 
 export function createTechnicalPdf(
   project: LedwallProject,
@@ -14,7 +15,6 @@ export function createTechnicalPdf(
   const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
   const totals = calculateProjectTotals(project, libraries);
   const powerMetrics = calculatePowerLineMetrics(project, libraries);
-  const suspensionMetrics = calculateSuspensionMetrics(project, libraries);
   let y = drawHeader(pdf, project, "RELAZIONE TECNICA");
 
   y = drawSectionTitle(pdf, "Riepilogo progetto", y);
@@ -24,7 +24,8 @@ export function createTechnicalPdf(
       ["Canvas", `${project.canvasWidth} x ${project.canvasHeight} px`],
       ["Schermi", String(totals.screenCount)],
       ["Cabinet", String(totals.cabinetCount)],
-      ["Pixel totali", formatInt(totals.pixels)],
+      ["Pixel attivi in pixelmap", formatInt(totals.pixels)],
+      ["Cabinet esclusi pixelmap", String(totals.excludedCabinetCount)],
       ["Potenza media", `${formatDecimal(totals.averageW / 1000)} kW`],
       ["Potenza massima", `${formatDecimal(totals.maxW / 1000)} kW`],
       ["Peso cabinet", `${formatDecimal(totals.cabinetWeightKg)} kg`],
@@ -106,20 +107,9 @@ export function createTechnicalPdf(
     y += 4.5;
   });
 
-  y = ensureSpace(pdf, project, y, 50);
-  y = drawSectionTitle(pdf, "Carichi ai punti di sospensione", y);
-  suspensionMetrics.forEach((metric) => {
-    y = ensureSpace(pdf, project, y, 7);
-    pdf.setFontSize(8.5);
-    pdf.text(
-      `${metric.point.label}: ${formatDecimal(metric.totalWeightKg)} kg ` +
-        `(${formatDecimal(metric.cabinetWeightKg)} kg cabinet + ` +
-        `${formatDecimal(metric.estimatedAccessoryWeightKg)} kg stimati)`,
-      18,
-      y,
-    );
-    y += 4.5;
-  });
+  const supportPlates = project.screens.flatMap((screen) =>
+    screen.supportPlates.map((plate) => ({ screen, plate })),
+  );
 
   y = ensureSpace(pdf, project, y, 50);
   y = drawSectionTitle(pdf, "Distinta materiali", y);
@@ -136,6 +126,25 @@ export function createTechnicalPdf(
     pdf.text(`1 x ${model?.manufacturer ?? "NovaStar"} ${model?.name ?? controller.modelId}`, 18, y);
     y += 5;
   });
+  const simplePlates = supportPlates.filter(({ plate }) => plate.type === "simple").length;
+  const aliscafPlates = supportPlates.filter(({ plate }) => plate.type === "aliscaf").length;
+  if (simplePlates) {
+    pdf.text(`${simplePlates} x piastra di sostegno semplice`, 18, y);
+    y += 5;
+  }
+  if (aliscafPlates) {
+    pdf.text(`${aliscafPlates} x piastra con aliscaf per truss`, 18, y);
+    y += 5;
+  }
+  const flybarQuantities = new Map<string, number>();
+  project.screens.flatMap((screen) => screen.flybars).forEach((flybar) =>
+    flybarQuantities.set(flybar.modelId, (flybarQuantities.get(flybar.modelId) ?? 0) + 1),
+  );
+  flybarQuantities.forEach((quantity, modelId) => {
+    const model = libraries.flybars.find((item) => item.id === modelId);
+    pdf.text(`${quantity} x flybar ${model?.manufacturer ?? ""} ${model?.name ?? modelId}`, 18, y);
+    y += 5;
+  });
 
   y = ensureSpace(pdf, project, y, 24);
   pdf.setDrawColor(210, 154, 55);
@@ -150,6 +159,49 @@ export function createTechnicalPdf(
     y + 6,
     { maxWidth: 174 },
   );
+
+  const allFlybarMetrics = calculateFlybarMetrics(project, libraries);
+  project.screens.forEach((screen) => {
+    const screenCabinets = project.cabinets.filter((cabinet) => cabinet.screenId === screen.id);
+    if (!screenCabinets.length) return;
+    pdf.addPage("a4", "landscape");
+    drawHeader(pdf, project, `RIGGING - ${screen.name}`);
+    const canvas = renderRiggingCanvas(project, libraries, screen);
+    const maxWidth = 260;
+    const maxHeight = 110;
+    const ratio = Math.min(maxWidth / canvas.width, maxHeight / canvas.height);
+    const imageWidth = canvas.width * ratio;
+    const imageHeight = canvas.height * ratio;
+    pdf.addImage(canvas.toDataURL("image/png"), "PNG", 14 + (maxWidth - imageWidth) / 2, 29, imageWidth, imageHeight, undefined, "FAST");
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(9);
+    pdf.text("Distinta pesi per flybar", 14, 146);
+    pdf.setFont("helvetica", "normal");
+    pdf.setFontSize(6.5);
+    const screenMetrics = allFlybarMetrics.filter((metric) => screen.flybars.some((flybar) => flybar.id === metric.flybar.id));
+    if (!screenMetrics.length) {
+      pdf.text("Nessuna flybar inserita. Le piastre sono evidenziate nel disegno.", 14, 152);
+    } else {
+      screenMetrics.forEach((metric, index) => {
+        const column = Math.floor(index / 13);
+        const row = index % 13;
+        if (column > 1) return;
+        const rowY = 152 + row * 4;
+        const rowX = 14 + column * 140;
+        pdf.setTextColor(metric.valid ? 22 : 190, metric.valid ? 70 : 35, metric.valid ? 50 : 35);
+        pdf.text(
+          `${metric.flybar.label} - ${metric.flybar.mode === "hanging" ? "sospesa" : "appoggio"}: ` +
+          `${formatDecimal(metric.cabinetWeightKg)} kg cabinet + ${formatDecimal(metric.cableAndAccessoryWeightKg)} kg cavi/accessori + ` +
+          `${formatDecimal(metric.plateWeightKg)} kg piastre = ${formatDecimal(metric.supportedLoadKg)} kg supportati / ` +
+          `${formatDecimal(metric.model?.maxLoadKg ?? 0)} kg portata; peso proprio ${formatDecimal(metric.flybarWeightKg)} kg`,
+          rowX,
+          rowY,
+          { maxWidth: 134 },
+        );
+      });
+      pdf.setTextColor(20, 28, 36);
+    }
+  });
   addPageNumbers(pdf);
   return new Uint8Array(pdf.output("arraybuffer"));
 }
@@ -159,35 +211,51 @@ export function createWiringPdf(
   libraries: AppLibraries,
 ): Uint8Array {
   const pdf = new jsPDF({ orientation: "landscape", unit: "mm", format: "a3" });
-  project.screens.forEach((screen, screenIndex) => {
-    if (screenIndex > 0) pdf.addPage("a3", "landscape");
-    drawHeader(pdf, project, `CABLAGGIO DATI - ${screen.name}`);
+  let pageIndex = 0;
+  project.screens.forEach((screen) => {
     const screenCabinets = project.cabinets.filter((cabinet) => cabinet.screenId === screen.id);
-    if (screenCabinets.length === 0) {
-      pdf.setFontSize(14);
-      pdf.text("Nessun cabinet nello schermo.", 18, 40);
-      return;
-    }
-    const canvas = renderWiringCanvas(project, libraries, screen);
-    const maxWidth = 388;
-    const maxHeight = 245;
-    const ratio = Math.min(maxWidth / canvas.width, maxHeight / canvas.height);
-    const imageWidth = canvas.width * ratio;
-    const imageHeight = canvas.height * ratio;
-    pdf.addImage(
-      canvas.toDataURL("image/png"),
-      "PNG",
-      15 + (maxWidth - imageWidth) / 2,
-      30,
-      imageWidth,
-      imageHeight,
-      undefined,
-      "FAST",
-    );
-    drawBackupTable(pdf, project, libraries, 15, 282);
+    (["data", "power"] as const).forEach((mode) => {
+      if (pageIndex > 0) pdf.addPage("a3", "landscape");
+      pageIndex += 1;
+      drawHeader(pdf, project, `${mode === "data" ? "CABLAGGIO DATI" : "CABLAGGIO ELETTRICO"} - ${screen.name}`);
+      if (!screenCabinets.length) {
+        pdf.setFontSize(14);
+        pdf.text("Nessun cabinet nello schermo.", 18, 40);
+        return;
+      }
+      const canvas = renderWiringCanvas(project, libraries, screen, mode);
+      const maxWidth = 388;
+      const maxHeight = 245;
+      const ratio = Math.min(maxWidth / canvas.width, maxHeight / canvas.height);
+      const imageWidth = canvas.width * ratio;
+      const imageHeight = canvas.height * ratio;
+      pdf.addImage(canvas.toDataURL("image/png"), "PNG", 15 + (maxWidth - imageWidth) / 2, 30, imageWidth, imageHeight, undefined, "FAST");
+      if (mode === "data") drawBackupTable(pdf, project, libraries, 15, 282);
+      else drawPowerTable(pdf, project, libraries, 15, 282);
+    });
   });
   addPageNumbers(pdf);
   return new Uint8Array(pdf.output("arraybuffer"));
+}
+
+function drawPowerTable(
+  pdf: jsPDF,
+  project: LedwallProject,
+  libraries: AppLibraries,
+  x: number,
+  y: number,
+): void {
+  const metrics = calculatePowerLineMetrics(project, libraries);
+  pdf.setFont("helvetica", "bold");
+  pdf.setFontSize(9);
+  pdf.text(`Linee elettriche - ${project.electrical.voltageV} V monofase`, x, y);
+  pdf.setFont("helvetica", "normal");
+  pdf.setFontSize(7.5);
+  metrics.slice(0, 8).forEach((metric, index) => pdf.text(
+    `L-${metric.line.lineNumber}: ${formatInt(metric.maxW)} W max - ${formatDecimal(metric.maxA)} A - ${formatDecimal(metric.utilizationPercent)}% - ${metric.valid ? "OK" : "OLTRE LIMITE"}`,
+    x,
+    y + 5 + index * 4,
+  ));
 }
 
 function drawBackupTable(

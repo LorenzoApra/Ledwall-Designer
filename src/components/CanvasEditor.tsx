@@ -5,6 +5,7 @@ import {
   calculateScreenPixelBounds,
 } from "../domain/geometry";
 import { calculateSuspensionMetrics } from "../domain/weight";
+import { calculateFlybarMetrics } from "../domain/flybars";
 import type {
   AppLibraries,
   CabinetInstance,
@@ -24,10 +25,11 @@ interface CanvasEditorProps {
   manualPowerLine?: number;
   snap: boolean;
   onSelectScreen: (id?: string) => void;
-  onSelectCabinet: (id?: string, additive?: boolean) => void;
+  onSelectCabinet: (id?: string, additive?: boolean, wholeRow?: boolean) => void;
   onMoveCabinet: (id: string, pixelX: number, pixelY: number) => void;
   onTraceCabinet: (id: string) => void;
   onTracePowerCabinet: (id: string) => void;
+  onFinishTrace: () => void;
 }
 
 interface DragState {
@@ -56,6 +58,7 @@ export function CanvasEditor({
   onMoveCabinet,
   onTraceCabinet,
   onTracePowerCabinet,
+  onFinishTrace,
 }: CanvasEditorProps) {
   const svgRef = useRef<SVGSVGElement>(null);
   const traceLastCabinetId = useRef<string | undefined>(undefined);
@@ -119,6 +122,10 @@ export function CanvasEditor({
     () => new Map(suspensionMetrics.map((metric) => [metric.point.id, metric])),
     [suspensionMetrics],
   );
+  const flybarById = useMemo(
+    () => new Map(calculateFlybarMetrics(project, libraries).map((metric) => [metric.flybar.id, metric])),
+    [project, libraries],
+  );
 
   const background = viewMode === "pixelmap" ? "#000" : "#f7f8fa";
 
@@ -177,7 +184,8 @@ export function CanvasEditor({
     event.currentTarget.setPointerCapture(event.pointerId);
     onSelectCabinet(
       cabinet.id,
-      event.metaKey || event.ctrlKey || event.shiftKey,
+      event.metaKey || event.ctrlKey,
+      event.shiftKey,
     );
     onSelectScreen(cabinet.screenId);
     if (traceActive) {
@@ -230,6 +238,9 @@ export function CanvasEditor({
             onSelectCabinet(undefined);
             onSelectScreen(undefined);
           }
+        }}
+        onDoubleClick={() => {
+          if (traceActive) onFinishTrace();
         }}
       >
         <defs>
@@ -407,6 +418,34 @@ export function CanvasEditor({
                       />
                       <text x={x} y={y + 5} textAnchor="middle" fontSize="12" fontWeight="900" fill="#fff">
                         {aliscaf ? "PA" : "PS"}
+                      </text>
+                    </g>
+                  );
+                })}
+              {viewMode === "weight" &&
+                screen.flybars.map((flybar) => {
+                  const firstModel = screenCabinets
+                    .map((cabinet) => modelById.get(cabinet.modelId))
+                    .find((model) => model !== undefined);
+                  const flybarModel = libraries.flybars.find((model) => model.id === flybar.modelId);
+                  const metric = flybarById.get(flybar.id);
+                  const pitch = firstModel?.pitchMm ?? 1;
+                  const x = flybar.xMm / pitch;
+                  const y = flybar.yMm / pitch;
+                  const width = (flybarModel?.widthMm ?? 500) / pitch;
+                  const hanging = flybar.mode === "hanging";
+                  // A hanging beam normally sits exactly on the screen's upper edge.
+                  // Keep the stored engineering coordinate untouched, but inset the
+                  // overlay so that the beam, rope and label remain visible in-canvas.
+                  const displayY = hanging ? y + 18 : y;
+                  return (
+                    <g key={flybar.id} pointerEvents="none">
+                      <line x1={x} y1={displayY} x2={x + width} y2={displayY} stroke={metric?.valid ? "#247e54" : "#cf334f"} strokeWidth="12" />
+                      {hanging
+                        ? <><line x1={x + width / 2} y1={displayY - 16} x2={x + width / 2} y2={displayY} stroke="#263747" strokeWidth="4" /><circle cx={x + width / 2} cy={displayY - 18} r="6" fill="#263747" /></>
+                        : <><line x1={x + 12} y1={displayY} x2={x + 12} y2={displayY + 28} stroke="#263747" strokeWidth="5" /><line x1={x + width - 12} y1={displayY} x2={x + width - 12} y2={displayY + 28} stroke="#263747" strokeWidth="5" /></>}
+                      <text x={x + width / 2} y={hanging ? displayY + 24 : displayY + 22} textAnchor="middle" fontSize="13" fontWeight="900" fill="#172633">
+                        {flybar.label} {metric?.supportedLoadKg.toFixed(1)}kg
                       </text>
                     </g>
                   );

@@ -1,6 +1,7 @@
 import { cabinetPhysicalCenter } from "./geometry";
 import { createId } from "./id";
 import { supportPlateWeightKg } from "./supportPlates";
+import { calculateFlybarOwnWeightKg } from "./flybars";
 import type {
   AppLibraries,
   CabinetInstance,
@@ -123,6 +124,7 @@ export function calculateEstimatedProjectWeightKg(
   return (
     cabinetAndAccessoriesKg +
     pointCount * project.rigging.hangingBarKgPerPoint +
-    supportPlateKg
+    supportPlateKg +
+    calculateFlybarOwnWeightKg(project, libraries)
   );
 }

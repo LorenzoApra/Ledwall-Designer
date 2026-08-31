@@ -10,7 +10,7 @@ import {
   removeCabinetFromPowerLines,
   undoLastCabinetFromPowerLine,
 } from "./domain/electrical";
-import { cabinetPixelSize } from "./domain/geometry";
+import { cabinetPhysicalSize, cabinetPixelSize } from "./domain/geometry";
 import { createId } from "./domain/id";
 import { createCabinetGrid, replaceScreenCabinets } from "./domain/layout";
 import type {
@@ -35,6 +35,7 @@ import {
   sanitizeFilename,
   saveBinary,
   saveProjectFile,
+  versionedFilename,
 } from "./platform/files";
 import { useHistoryProject } from "./state/useHistoryProject";
 import { useLibraries } from "./state/useLibraries";
@@ -75,12 +76,20 @@ export default function App() {
       const model = libraries.cabinets.find((item) => item.id === cabinet.modelId);
       return sum + (model ? model.pixelWidth * model.pixelHeight : 0);
     }, 0);
-    return { totalPixels, cabinetCount: project.cabinets.length };
+    const activePixels = project.cabinets.reduce((sum, cabinet) => {
+      if (cabinet.excludeFromPixelmap) return sum;
+      const model = libraries.cabinets.find((item) => item.id === cabinet.modelId);
+      return sum + (model ? model.pixelWidth * model.pixelHeight : 0);
+    }, 0);
+    return { totalPixels, activePixels, cabinetCount: project.cabinets.length };
   }, [project.cabinets, libraries.cabinets]);
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       const command = event.metaKey || event.ctrlKey;
+      const editing = Boolean((event.target as HTMLElement | null)?.closest(
+        "input, textarea, select, [contenteditable='true']",
+      ));
       if (command && event.key.toLowerCase() === "s") {
         event.preventDefault();
         void handleSave(false);
@@ -90,12 +99,25 @@ export default function App() {
       } else if (command && event.key.toLowerCase() === "z") {
         event.preventDefault();
         history.undo();
+      } else if (command && event.key.toLowerCase() === "a" && !editing) {
+        event.preventDefault();
+        selectAllCabinets();
+      } else if ((event.key === "Enter" || event.key === "Escape") && !editing && manualTracePort !== undefined) {
+        event.preventDefault();
+        finishManualTrace();
+      } else if ((event.key === "Enter" || event.key === "Escape") && !editing && manualPowerLine !== undefined) {
+        event.preventDefault();
+        finishManualPowerTrace();
+      } else if (event.key.toLowerCase() === "n" && !command && !editing && selectedCabinetIds.length > 0 && panel === "data") {
+        event.preventDefault();
+        startNewDataPort();
+      } else if (event.key.toLowerCase() === "n" && !command && !editing && selectedCabinetIds.length > 0 && panel === "power") {
+        event.preventDefault();
+        startNewPowerLine();
       } else if (
         (event.key === "Delete" || event.key === "Backspace") &&
         selectedCabinetIds.length > 0 &&
-        !(event.target as HTMLElement | null)?.closest(
-          "input, textarea, select, [contenteditable='true']",
-        )
+        !editing
       ) {
         event.preventDefault();
         deleteCabinet();
@@ -167,6 +189,7 @@ export default function App() {
           pixelmap: { ...DEFAULT_PIXELMAP_OPTIONS },
           suspensionPoints: [],
           supportPlates: [],
+          flybars: [],
         },
       ],
     }));
@@ -220,7 +243,7 @@ export default function App() {
         cabinets,
         screens: current.screens.map((screen) =>
           screen.id === selectedScreen.id
-            ? { ...screen, cabinetIds: nextIds, suspensionPoints: [], supportPlates: [] }
+            ? { ...screen, cabinetIds: nextIds, suspensionPoints: [], supportPlates: [], flybars: [] }
             : screen,
         ),
         controllers: current.controllers.map((controller) => ({
@@ -259,7 +282,7 @@ export default function App() {
     }));
   }
 
-  function selectCabinet(id?: string, additive = false): void {
+  function selectCabinet(id?: string, additive = false, wholeRow = false): void {
     if (!id) {
       setSelectedCabinetId(undefined);
       setSelectedCabinetIds([]);
@@ -267,6 +290,16 @@ export default function App() {
     }
     const cabinet = project.cabinets.find((item) => item.id === id);
     if (cabinet) setSelectedScreenId(cabinet.screenId);
+    if (cabinet && wholeRow) {
+      const ids = project.cabinets
+        .filter((item) => item.screenId === cabinet.screenId && item.row === cabinet.row)
+        .sort((a, b) => a.column - b.column)
+        .map((item) => item.id);
+      setSelectedCabinetIds(ids);
+      setSelectedCabinetId(id);
+      setStatus(`Riga ${cabinet.row}: ${ids.length} cabinet selezionati`);
+      return;
+    }
     if (!additive) {
       setSelectedCabinetId(id);
       setSelectedCabinetIds([id]);
@@ -291,6 +324,19 @@ export default function App() {
     setSelectedCabinetIds(ids);
     setSelectedCabinetId(ids.at(-1));
     setStatus(`${ids.length} cabinet selezionati in ${selectedScreen.name}`);
+  }
+
+  function selectAllCabinets(): void {
+    const ids = [...project.cabinets]
+      .sort((a, b) => a.screenId.localeCompare(b.screenId) || a.row - b.row || a.column - b.column)
+      .map((cabinet) => cabinet.id);
+    setSelectedCabinetIds(ids);
+    setSelectedCabinetId(ids.at(-1));
+    if (ids.length) {
+      const last = project.cabinets.find((cabinet) => cabinet.id === ids.at(-1));
+      if (last) setSelectedScreenId(last.screenId);
+    }
+    setStatus(`${ids.length} cabinet selezionati nel canvas`);
   }
 
   function setPixelmapExclusion(excluded: boolean): void {
@@ -334,6 +380,9 @@ export default function App() {
         supportPlates: screen.supportPlates.filter(
           (plate) => !plate.cabinetIds.some((id) => ids.has(id)),
         ),
+        flybars: screen.flybars
+          .map((flybar) => ({ ...flybar, cabinetIds: flybar.cabinetIds.filter((id) => !ids.has(id)) }))
+          .filter((flybar) => flybar.cabinetIds.length > 0),
       })),
       controllers: current.controllers.map((controller) => ({
         ...controller,
@@ -396,7 +445,7 @@ export default function App() {
       run.backupPortNumber = controller.mode.redundancy ? backupPorts[index] : undefined;
       run.backupControllerName = controller.mode.redundancy ? `Secondo ${controllerModel.name}: porta ${run.portNumber}` : undefined;
     });
-    const totalPixels = projectStats.totalPixels;
+    const totalPixels = projectStats.activePixels;
     const capacity = calculateControllerCapacity(controllerModel, controller);
     if (totalPixels > capacity.totalCapacityPixels) warnings.push(`Pixel totali ${formatInt(totalPixels)} oltre il limite ${formatInt(capacity.totalCapacityPixels)}.`);
     if (runs.length > controllerModel.ethernetPorts) warnings.push(`Richieste ${runs.length} porte, disponibili ${controllerModel.ethernetPorts}.`);
@@ -429,6 +478,22 @@ export default function App() {
         ? `${selectedIds.length} cabinet rimossi dalla porta dati`
         : `${selectedIds.length} cabinet assegnati a P-${portNumber}; traccia attiva`,
     );
+  }
+
+  function startNewDataPort(): void {
+    const controller = project.controllers[0];
+    const model = libraries.controllers.find((item) => item.id === controller?.modelId);
+    if (!controller || !model || selectedCabinetIds.length === 0) return;
+    const usedPorts = new Set(controller.portRuns.map((run) => run.portNumber));
+    const nextPort = Array.from(
+      { length: model.ethernetPorts },
+      (_, index) => index + 1,
+    ).find((port) => !usedPorts.has(port));
+    if (nextPort === undefined) {
+      setStatus(`Nessuna porta libera su ${model.name}`);
+      return;
+    }
+    assignSelectedCabinet(nextPort);
   }
 
   function traceCabinet(cabinetId: string): void {
@@ -556,6 +621,14 @@ export default function App() {
     );
   }
 
+  function startNewPowerLine(): void {
+    if (selectedCabinetIds.length === 0) return;
+    const usedLines = new Set(project.powerLines.map((line) => line.lineNumber));
+    let nextLine = 1;
+    while (usedLines.has(nextLine)) nextLine += 1;
+    assignSelectedCabinetToPowerLine(nextLine);
+  }
+
   function tracePowerCabinet(cabinetId: string): void {
     if (manualPowerLine === undefined) return;
     const activeLine = project.powerLines.find(
@@ -640,7 +713,13 @@ export default function App() {
       ...current,
       screens: current.screens.map((screen) =>
         screen.id === selectedScreen.id
-          ? { ...screen, supportPlates: plan.plates }
+          ? {
+              ...screen,
+              supportPlates: [
+                ...screen.supportPlates.filter((plate) => !plate.automatic),
+                ...plan.plates,
+              ],
+            }
           : screen,
       ),
     }));
@@ -662,15 +741,16 @@ export default function App() {
     const centers = reference.map((cabinet) => {
       const model = libraries.cabinets.find((item) => item.id === cabinet.modelId);
       if (!model) return { x: cabinet.physicalXmm, y: cabinet.physicalYmm };
+      const size = cabinetPhysicalSize(cabinet, model);
       if (reference.length === 1) {
         return {
-          x: cabinet.physicalXmm + model.widthMm,
-          y: cabinet.physicalYmm + model.heightMm,
+          x: cabinet.physicalXmm + size.width,
+          y: cabinet.physicalYmm + size.height,
         };
       }
       return {
-        x: cabinet.physicalXmm + model.widthMm / 2,
-        y: cabinet.physicalYmm + model.heightMm / 2,
+        x: cabinet.physicalXmm + size.width / 2,
+        y: cabinet.physicalYmm + size.height / 2,
       };
     });
     const xMm = centers.reduce((sum, point) => sum + point.x, 0) / centers.length;
@@ -702,7 +782,7 @@ export default function App() {
         ? await renderMasterPixelmap(project, libraries)
         : await renderScreenPixelmap(project, libraries, selectedScreen!);
       const bytes = await canvasToPngBytes(rendered.canvas);
-      const name = `${sanitizeFilename(rendered.label)}.png`;
+      const name = versionedFilename(project, sanitizeFilename(rendered.label), "png");
       const path = await saveBinary(bytes, name, "Esporta pixelmap PNG", ["png"], "image/png");
       if (path) setStatus(`Pixelmap esportata: ${path.split("/").at(-1)}`);
     } catch (error) {
@@ -718,7 +798,7 @@ export default function App() {
       const { createTechnicalPdf, createWiringPdf } = await import("./export/reports");
       const bytes = kind === "technical" ? createTechnicalPdf(project, libraries) : createWiringPdf(project, libraries);
       const suffix = kind === "technical" ? "Relazione tecnica" : "Cablaggi";
-      const name = `${sanitizeFilename(project.metadata.projectName)} - ${suffix}.pdf`;
+      const name = versionedFilename(project, suffix, "pdf");
       const path = await saveBinary(bytes, name, `Esporta ${suffix}`, ["pdf"], "application/pdf");
       if (path) setStatus(`PDF esportato: ${path.split("/").at(-1)}`);
     } catch (error) {
@@ -770,13 +850,25 @@ export default function App() {
           <div className="toolbar-group">
             <button
               className="tool-toggle danger"
-              disabled={!selectedCabinetId}
+              disabled={!selectedCabinetIds.length}
               onClick={deleteCabinet}
               title="Elimina il cabinet selezionato (Canc/Backspace)"
             >
-              Elimina cabinet
+              Elimina {selectedCabinetIds.length || ""} cabinet
             </button>
           </div>
+          {panel === "data" && (
+            <div className="toolbar-group">
+              <button className="tool-toggle" disabled={!selectedCabinetIds.length} onClick={startNewDataPort} title="Scorciatoia: N">+ Nuova porta</button>
+              {manualTracePort !== undefined && <button className="tool-toggle active" onClick={finishManualTrace} title="Scorciatoia: Invio o Esc">Termina P-{manualTracePort}</button>}
+            </div>
+          )}
+          {panel === "power" && (
+            <div className="toolbar-group">
+              <button className="tool-toggle" disabled={!selectedCabinetIds.length} onClick={startNewPowerLine} title="Scorciatoia: N">+ Nuova linea</button>
+              {manualPowerLine !== undefined && <button className="tool-toggle active" onClick={finishManualPowerTrace} title="Scorciatoia: Invio o Esc">Termina L-{manualPowerLine}</button>}
+            </div>
+          )}
           <div className="toolbar-group zoom-control"><button onClick={() => setZoom(Math.max(0.08, zoom - 0.05))}>−</button><input type="range" min="8" max="100" value={zoom * 100} onChange={(event) => setZoom(Number(event.target.value) / 100)} /><button onClick={() => setZoom(Math.min(1, zoom + 0.05))}>+</button><span>{Math.round(zoom * 100)}%</span></div>
           <div className="toolbar-spacer" />
           <div className="canvas-stats"><span>{project.canvasWidth}×{project.canvasHeight}</span><span>{projectStats.cabinetCount} cabinet</span><span>{formatInt(projectStats.totalPixels)} px</span></div>
@@ -788,14 +880,16 @@ export default function App() {
           zoom={zoom}
           selectedScreenId={selectedScreenId}
           selectedCabinetId={selectedCabinetId}
+          selectedCabinetIds={selectedCabinetIds}
           manualTracePort={manualTracePort}
           manualPowerLine={manualPowerLine}
           snap={snap}
           onSelectScreen={setSelectedScreenId}
-          onSelectCabinet={setSelectedCabinetId}
+          onSelectCabinet={selectCabinet}
           onMoveCabinet={moveCabinet}
           onTraceCabinet={traceCabinet}
           onTracePowerCabinet={tracePowerCabinet}
+          onFinishTrace={manualTracePort !== undefined ? finishManualTrace : finishManualPowerTrace}
         />
         <div className="statusbar"><span className={busy ? "status-dot busy" : "status-dot"} /><span>{busy ? "Elaborazione…" : status}</span><span className="status-spacer" /><span>Offline</span><span>Front View</span></div>
       </main>
@@ -806,13 +900,17 @@ export default function App() {
         libraries={libraries}
         selectedScreenId={selectedScreenId}
         selectedCabinetId={selectedCabinetId}
+        selectedCabinetIds={selectedCabinetIds}
         manualTracePort={manualTracePort}
         manualPowerLine={manualPowerLine}
         onProjectChange={history.commit}
         onLibrariesChange={setLibraries}
         onResetLibraries={resetLibraries}
         onSelectScreen={setSelectedScreenId}
-        onSelectCabinet={setSelectedCabinetId}
+        onSelectCabinet={(id) => selectCabinet(id)}
+        onSelectAllCabinetsInScreen={selectAllCabinetsInScreen}
+        onClearCabinetSelection={() => selectCabinet(undefined)}
+        onSetPixelmapExclusion={setPixelmapExclusion}
         onAddScreen={addScreen}
         onDeleteScreen={deleteScreen}
         onDeleteCabinet={deleteCabinet}
@@ -825,6 +923,8 @@ export default function App() {
         onFinishManualPowerTrace={finishManualPowerTrace}
         onUndoManualPowerTraceStep={undoManualPowerTraceStep}
         onAutoSuspension={autoSuspension}
+        onAutoSupportPlates={autoSupportPlates}
+        onAddManualSupportPlate={addManualSupportPlate}
         onAssignSelectedCabinet={assignSelectedCabinet}
         onActivateManualTrace={activateManualTrace}
         onFinishManualTrace={finishManualTrace}

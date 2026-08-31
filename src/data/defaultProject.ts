@@ -44,6 +44,7 @@ export function createDefaultProject(): LedwallProject {
         pixelmap: { ...DEFAULT_PIXELMAP_OPTIONS },
         suspensionPoints: [],
         supportPlates: [],
+        flybars: [],
       },
     ],
     cabinets: [],

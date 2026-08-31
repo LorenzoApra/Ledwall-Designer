@@ -61,7 +61,9 @@ export function createAutoWiring(
   }
 
   const modelById = new Map(libraries.cabinets.map((model) => [model.id, model]));
-  const screenCabinets = cabinets.filter((cabinet) => cabinet.screenId === screen.id);
+  const screenCabinets = cabinets.filter(
+    (cabinet) => cabinet.screenId === screen.id && !cabinet.excludeFromPixelmap,
+  );
   if (screenCabinets.length === 0) {
     return { runs: [], warnings: ["Lo schermo non contiene cabinet."], totalDistanceMm: 0 };
   }
