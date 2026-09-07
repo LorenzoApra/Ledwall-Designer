@@ -163,6 +163,9 @@ button:disabled { cursor: default; opacity: 0.42; }
 }
 .cabinet-node { cursor: grab; }
 .cabinet-node:active { cursor: grabbing; }
+.rigging-node { cursor: grab; }
+.rigging-node:active { cursor: grabbing; }
+.drag-hint { display: block; margin: 7px 0 10px; color: #71808e; }
 .design-canvas.trace-mode .cabinet-node,
 .design-canvas.trace-mode .cabinet-node:active { cursor: crosshair; }
 .statusbar {
@@ -281,6 +284,10 @@ input[type="file"] { height: auto; padding: 6px; font-size: 9px; }
 .run-card .run-order { max-height: 42px; overflow: auto; color: #3e4d59; line-height: 1.4; }
 .run-card .field { margin: 8px 0 0; }
 .run-card .mini-button.full { width: 100%; margin-top: 8px; }
+.collapsible-card > summary { cursor: pointer; list-style-position: outside; }
+.collapsible-card > summary::marker { color: #7a8995; }
+.collapsible-card[open] > summary { margin-bottom: 8px; }
+.collapsible-card-body { padding-top: 1px; }
 .trace-banner { display: grid; gap: 3px; margin-bottom: 10px; padding: 9px; color: #7d450e; background: #fff1dc; border: 1px solid #edb269; border-radius: 6px; }
 .trace-banner strong { font-size: 10px; }
 .trace-banner span { font-size: 9px; line-height: 1.4; }
@@ -289,6 +296,7 @@ input[type="file"] { height: auto; padding: 6px; font-size: 9px; }
 .segmented { display: grid; grid-template-columns: 1fr 1fr; margin-bottom: 12px; padding: 3px; background: #dfe6eb; border-radius: 6px; }
 .segmented button { padding: 7px; color: #63727e; background: transparent; border: 0; border-radius: 4px; font-size: 10px; font-weight: 800; }
 .segmented button.active { color: #293944; background: #fff; box-shadow: 0 1px 3px rgba(25,40,52,.14); }
+.segmented.library-tabs { grid-template-columns: repeat(3, 1fr); }
 .library-actions { padding-bottom: 16px; }
 
 .modal-backdrop { position: fixed; inset: 0; display: grid; place-items: center; padding: 24px; background: rgba(10,17,24,.62); backdrop-filter: blur(4px); z-index: 30; }

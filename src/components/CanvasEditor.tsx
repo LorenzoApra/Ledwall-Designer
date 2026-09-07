@@ -27,18 +27,35 @@ interface CanvasEditorProps {
   onSelectScreen: (id?: string) => void;
   onSelectCabinet: (id?: string, additive?: boolean, wholeRow?: boolean) => void;
   onMoveCabinet: (id: string, pixelX: number, pixelY: number) => void;
+  onMoveSupportPlate: (screenId: string, id: string, xMm: number, yMm: number) => void;
+  onMoveFlybar: (screenId: string, id: string, xMm: number, yMm: number) => void;
+  onZoomChange: (zoom: number) => void;
   onTraceCabinet: (id: string) => void;
   onTracePowerCabinet: (id: string) => void;
   onFinishTrace: () => void;
 }
 
-interface DragState {
+interface CabinetDragState {
+  kind: "cabinet";
   id: string;
   startPointerX: number;
   startPointerY: number;
   startCabinetX: number;
   startCabinetY: number;
 }
+
+interface RiggingDragState {
+  kind: "supportPlate" | "flybar";
+  id: string;
+  screenId: string;
+  startPointerX: number;
+  startPointerY: number;
+  startXmm: number;
+  startYmm: number;
+  pitchMm: number;
+}
+
+type DragState = CabinetDragState | RiggingDragState;
 
 const PIXELMAP_COLORS = ["#4f0b4e", "#006262", "#5c5c00", "#00165c", "#006006", "#650900"];
 
@@ -56,6 +73,9 @@ export function CanvasEditor({
   onSelectScreen,
   onSelectCabinet,
   onMoveCabinet,
+  onMoveSupportPlate,
+  onMoveFlybar,
+  onZoomChange,
   onTraceCabinet,
   onTracePowerCabinet,
   onFinishTrace,
@@ -153,6 +173,16 @@ export function CanvasEditor({
     }
     if (!drag) return;
     const point = clientToSvg(event.clientX, event.clientY);
+    if (drag.kind !== "cabinet") {
+      const xMm = Math.max(0, Math.round(drag.startXmm + (point.x - drag.startPointerX) * drag.pitchMm));
+      const yMm = Math.max(0, Math.round(drag.startYmm + (point.y - drag.startPointerY) * drag.pitchMm));
+      if (drag.kind === "supportPlate") {
+        onMoveSupportPlate(drag.screenId, drag.id, xMm, yMm);
+      } else {
+        onMoveFlybar(drag.screenId, drag.id, xMm, yMm);
+      }
+      return;
+    }
     const cabinet = cabinetById.get(drag.id);
     const model = cabinet ? modelById.get(cabinet.modelId) : undefined;
     if (!cabinet || !model) return;
@@ -199,6 +229,7 @@ export function CanvasEditor({
       return;
     }
     setDrag({
+      kind: "cabinet",
       id: cabinet.id,
       startPointerX: point.x,
       startPointerY: point.y,
@@ -207,8 +238,52 @@ export function CanvasEditor({
     });
   }
 
+  function startRiggingDrag(
+    event: React.PointerEvent<SVGGElement>,
+    kind: RiggingDragState["kind"],
+    screenId: string,
+    id: string,
+    startXmm: number,
+    startYmm: number,
+    pitchMm: number,
+  ): void {
+    event.preventDefault();
+    event.stopPropagation();
+    const point = clientToSvg(event.clientX, event.clientY);
+    event.currentTarget.setPointerCapture(event.pointerId);
+    onSelectScreen(screenId);
+    setDrag({
+      kind,
+      id,
+      screenId,
+      startPointerX: point.x,
+      startPointerY: point.y,
+      startXmm,
+      startYmm,
+      pitchMm,
+    });
+  }
+
+  function handleWheel(event: React.WheelEvent<HTMLDivElement>): void {
+    event.preventDefault();
+    const scroll = event.currentTarget;
+    const rect = scroll.getBoundingClientRect();
+    const pointerX = event.clientX - rect.left;
+    const pointerY = event.clientY - rect.top;
+    const nextZoom = Math.min(1, Math.max(0.08, zoom + (event.deltaY < 0 ? 0.05 : -0.05)));
+    if (nextZoom === zoom) return;
+    const ratio = nextZoom / zoom;
+    const nextScrollLeft = (scroll.scrollLeft + pointerX) * ratio - pointerX;
+    const nextScrollTop = (scroll.scrollTop + pointerY) * ratio - pointerY;
+    onZoomChange(nextZoom);
+    requestAnimationFrame(() => {
+      scroll.scrollLeft = nextScrollLeft;
+      scroll.scrollTop = nextScrollTop;
+    });
+  }
+
   return (
-    <div className="canvas-scroll">
+    <div className="canvas-scroll" onWheel={handleWheel}>
       <svg
         ref={svgRef}
         className={`design-canvas ${traceActive ? "trace-mode" : ""}`}
@@ -402,7 +477,20 @@ export function CanvasEditor({
                   const y = plate.yMm / pitch;
                   const aliscaf = plate.type === "aliscaf";
                   return (
-                    <g key={plate.id} pointerEvents="none">
+                    <g
+                      key={plate.id}
+                      className="rigging-node"
+                      onPointerDown={(event) => startRiggingDrag(
+                        event,
+                        "supportPlate",
+                        screen.id,
+                        plate.id,
+                        plate.xMm,
+                        plate.yMm,
+                        pitch,
+                      )}
+                    >
+                      <circle cx={x} cy={y} r="28" fill="transparent" />
                       {aliscaf && (
                         <line x1={x - 46} y1={y} x2={x + 46} y2={y} stroke="#276d9c" strokeWidth="8" />
                       )}
@@ -439,7 +527,20 @@ export function CanvasEditor({
                   // overlay so that the beam, rope and label remain visible in-canvas.
                   const displayY = hanging ? y + 18 : y;
                   return (
-                    <g key={flybar.id} pointerEvents="none">
+                    <g
+                      key={flybar.id}
+                      className="rigging-node"
+                      onPointerDown={(event) => startRiggingDrag(
+                        event,
+                        "flybar",
+                        screen.id,
+                        flybar.id,
+                        flybar.xMm,
+                        flybar.yMm,
+                        pitch,
+                      )}
+                    >
+                      <line x1={x} y1={displayY} x2={x + width} y2={displayY} stroke="transparent" strokeWidth="36" />
                       <line x1={x} y1={displayY} x2={x + width} y2={displayY} stroke={metric?.valid ? "#247e54" : "#cf334f"} strokeWidth="12" />
                       {hanging
                         ? <><line x1={x + width / 2} y1={displayY - 16} x2={x + width / 2} y2={displayY} stroke="#263747" strokeWidth="4" /><circle cx={x + width / 2} cy={displayY - 18} r="6" fill="#263747" /></>

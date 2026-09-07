@@ -15,7 +15,6 @@ export interface CabinetModel {
   weightKg: number;
   powerMaxW: number;
   powerAverageW: number;
-  powerMinW: number;
   moduleWidthMm?: number;
   moduleHeightMm?: number;
   modulePixelWidth?: number;
@@ -245,7 +244,6 @@ export interface PowerLineMetrics {
   line: PowerLine;
   maxW: number;
   averageW: number;
-  minW: number;
   maxA: number;
   averageA: number;
   utilizationPercent: number;

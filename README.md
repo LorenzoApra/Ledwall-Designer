@@ -61,8 +61,8 @@ tabella completa; i percorsi usano linee ad alto contrasto e frecce maggiorate.
 
 Nella vista **Elettrico**, selezionare il primo cabinet e usare **+ Nuova linea**
 nella toolbar (`N`), oppure scegliere una linea esistente. Trascinare sui cabinet nell'ordine fisico del
-cavo; carico, corrente e percentuale di utilizzo vengono aggiornati durante il
-disegno. Sono disponibili anche annullamento dell'ultimo tratto e rimozione del
+cavo; ogni linea mostra soltanto numero di cabinet, assorbimento massimo e
+assorbimento medio in W o kW. Sono disponibili anche annullamento dell'ultimo tratto e rimozione del
 cabinet dalla linea.
 
 Un cabinet selezionato può essere eliminato dal pulsante sopra il canvas,
@@ -80,15 +80,17 @@ assegnati in blocco a una porta dati o a una linea elettrica. Dal pannello
 progetto, nel peso e nella struttura, ma non vengono disegnati nell'output PNG
 e vengono ignorati dai cablaggi automatici dati ed elettrici.
 
-## Piastre di sostegno MG7S
+## Accessori di sostegno
 
-Il manuale Yestech richiede le piastre di collegamento quando l'altezza sospesa
-raggiunge 4 m, equivalenti a 8 cabinet MG7S da 500 mm, e prescrive un rinforzo
-della struttura o un consulto tecnico oltre 12 m. Nel pannello **Peso** l'app può
-generare automaticamente una piastra in ogni giunto 2×2 nei primi 4 m dal
-bordo superiore oppure aggiungerle manualmente. Sono disponibili piastre semplici e piastre con
-aliscaf per il collegamento a una truss; posizione, tipo e peso restano
-modificabili.
+Nel pannello **Peso**, la sezione **Accessori** può generare automaticamente una
+piastra in ogni giunto interno 2×2 entro una soglia espressa in metri, oppure
+aggiungerla manualmente. Il calcolo usa la geometria dei cabinet ed è disponibile
+per tutti i produttori e modelli. Sono previste piastre semplici e piastre con
+aliscaf per il collegamento a una truss; piastre e flybar si posizionano
+trascinandole direttamente sul disegno.
+
+Sul canvas la rotella del mouse regola lo zoom mantenendo come riferimento la
+zona sotto il puntatore.
 
 ## Importazione RCFG / RCFGX
 
@@ -98,13 +100,30 @@ receiving card. Misure fisiche, pitch, peso e consumi rimangono modificabili e
 devono essere verificati, perché non sono dati affidabili nel formato NovaStar.
 La vista cabinet può essere filtrata per produttore.
 
+## Libreria CSV condivisa
+
+La schermata **Librerie** è organizzata in tre aree: **Cabinet**, **Sending
+Card** e **Accessori**. In Accessori sono raccolte sia le flybar sia le piastre
+e gli altri componenti di rigging. I cabinet espongono soltanto assorbimento
+massimo e medio.
+
+La libreria iniziale viene caricata da
+`src/data/ledwall-library.csv`, un CSV con separatore `;` modificabile anche in
+Excel. L'app conserva una copia locale e continua a funzionare completamente
+offline. Il campo **URL CSV GitHub** è già impostato sul link Raw del file nel
+repository; **Aggiorna dalla rete** scarica e valida esplicitamente una nuova
+copia senza sovrascrivere quella locale in caso di errore. È disponibile anche
+l'importazione di un CSV locale. Le modifiche manuali e l'importazione
+RCFG/RCFGX rimangono disponibili.
+
 ## Flybar, accessori e report
 
-Le librerie di flybar e accessori sono separate per produttore e completamente
+Flybar, piastre e altri accessori sono raccolti per produttore e completamente
 modificabili. Nel pannello **Peso** si possono applicare manualmente le flybar
 alle colonne selezionate, sia in sospensione sia in appoggio; l'app mostra per
 ogni elemento peso cabinet, cavi/accessori, piastre, carico supportato, portata e
-percentuale di utilizzo. La portata iniziale del beam MG7S è 200 kg, mentre il
+percentuale di utilizzo. Le schede delle singole piastre e flybar sono chiuse di
+default ed espandibili quando servono. La portata iniziale del beam MG7S è 200 kg, mentre il
 peso proprio resta a zero finché non viene inserito un valore verificato.
 
 La relazione tecnica include una tavola rigging per ogni schermo con piastre e

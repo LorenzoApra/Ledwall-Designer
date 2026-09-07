@@ -14,7 +14,6 @@ export const DEFAULT_CABINETS: CabinetModel[] = [
     weightKg: 7.4,
     powerMaxW: 210,
     powerAverageW: 150,
-    powerMinW: 70,
     moduleWidthMm: 250,
     moduleHeightMm: 250,
     modulePixelWidth: 64,

@@ -4,6 +4,7 @@ import { calculatePowerLineMetrics } from "../domain/electrical";
 import { cabinetPhysicalSize, cabinetPixelSize, calculateScreenPixelBounds } from "../domain/geometry";
 import { createId } from "../domain/id";
 import { createAutomaticSupportPlates } from "../domain/supportPlates";
+import { parseLibraryCsv } from "../domain/libraryCsv";
 import { parseRcfgFile } from "../domain/rcfg";
 import { calculateProjectTotals } from "../domain/projectMetrics";
 import { calculateFlybarMetrics } from "../domain/flybars";
@@ -542,7 +543,7 @@ function PowerPanel(props: InspectorProps) {
         {props.manualPowerLine !== undefined && (
           <div className="trace-banner power-trace">
             <strong>Traccia L-{props.manualPowerLine} attiva</strong>
-            <span>Tieni premuto sul cabinet e trascina sugli altri nell’ordine del cavo elettrico.</span>
+            <span>Tieni premuto sul cabinet e trascina sugli altri per definire il percorso del cavo elettrico.</span>
           </div>
         )}
         {!selectedCabinet ? (
@@ -554,7 +555,7 @@ function PowerPanel(props: InspectorProps) {
             <div className="info-strip">
               {selectedCabinets.length} cabinet selezionati · ultimo: {selectedCabinet.row},{selectedCabinet.column}
               {selectedAssignment
-                ? ` · L-${selectedAssignment.lineNumber} · ordine ${selectedAssignment.cabinetIds.indexOf(selectedCabinet.id) + 1}`
+                ? ` · L-${selectedAssignment.lineNumber}`
                 : " · senza alimentazione"}
             </div>
             <Field label="Linea di partenza">
@@ -610,13 +611,7 @@ function PowerPanel(props: InspectorProps) {
           {metrics.map((metric) => (
             <div className={`run-card ${metric.valid ? "" : "invalid"} ${metric.line.lineNumber === props.manualPowerLine ? "active-trace" : ""}`} key={metric.line.id}>
               <div className="run-card-title"><i style={{ background: metric.line.color }} /><strong>Linea {metric.line.lineNumber}</strong><span>{metric.line.cabinetIds.length} cab.</span></div>
-              <div className="progress"><span style={{ width: `${Math.min(100, metric.utilizationPercent)}%`, background: metric.line.color }} /></div>
-              <small>{formatInt(metric.maxW)} W max · {formatInt(metric.averageW)} W medi</small>
-              <small>{metric.maxA.toFixed(2)} A max · {metric.utilizationPercent.toFixed(1)}%</small>
-              <small className="run-order">Ordine: {metric.line.cabinetIds.map((id) => {
-                const cabinet = project.cabinets.find((item) => item.id === id);
-                return cabinet ? `${cabinet.row},${cabinet.column}` : "?";
-              }).join(" → ")}</small>
+              <small>{formatPower(metric.maxW)} max · {formatPower(metric.averageW)} medi</small>
               <button className="mini-button full" onClick={() => props.onActivateManualPowerTrace(metric.line.lineNumber)}>
                 Modifica percorso
               </button>
@@ -710,12 +705,16 @@ function WeightPanel(props: InspectorProps) {
         </div>
         <button className="button primary full" onClick={props.onAutoSuspension}>Genera punti per colonna</button>
       </Section>
-      <Section title="Piastre di sostegno MG7S">
+      <Section title="Accessori">
         <Field
-          label="Soglia automatica mm"
-          hint="Genera una piastra in ogni giunto 2×2 nei primi 4.000 mm dal bordo superiore (8 cabinet MG7S); oltre 12 m serve un rinforzo/consulto tecnico."
+          label="Soglia automatica (m)"
+          hint="Genera una piastra in ogni giunto interno 2×2 entro la distanza impostata dal bordo superiore. La funzione è disponibile per tutti i modelli di cabinet."
         >
-          <input type="number" min="0" step="500" value={project.rigging.plateRequirementHeightMm} onChange={(event) => update("plateRequirementHeightMm", Number(event.target.value))} />
+          <DecimalInput
+            min={0}
+            value={project.rigging.plateRequirementHeightMm / 1000}
+            onChange={(value) => update("plateRequirementHeightMm", value * 1000)}
+          />
         </Field>
         <Field label="Tipo piastra">
           <select value={plateType} onChange={(event) => setPlateType(event.target.value as SupportPlateType)}>
@@ -737,11 +736,12 @@ function WeightPanel(props: InspectorProps) {
         ))}
         <div className="run-list">
           {(screen?.supportPlates ?? []).map((plate, index) => (
-            <div className="run-card" key={plate.id}>
-              <div className="run-card-title">
+            <details className="run-card collapsible-card" key={plate.id}>
+              <summary className="run-card-title">
                 <strong>Piastra {index + 1}</strong>
                 <span>{plate.automatic ? "AUTO" : "MANUALE"}</span>
-              </div>
+              </summary>
+              <div className="collapsible-card-body">
               <Field label="Tipo">
                 <select value={plate.type} onChange={(event) => onProjectChange((current) => ({
                   ...current,
@@ -754,12 +754,10 @@ function WeightPanel(props: InspectorProps) {
                   <option value="aliscaf">Con aliscaf</option>
                 </select>
               </Field>
-              <div className="two-columns">
-                <Field label="X mm"><input type="number" value={plate.xMm} onChange={(event) => onProjectChange((current) => ({ ...current, screens: current.screens.map((item) => item.id === screen?.id ? { ...item, supportPlates: item.supportPlates.map((candidate) => candidate.id === plate.id ? { ...candidate, xMm: Number(event.target.value), automatic: false } : candidate) } : item) }))} /></Field>
-                <Field label="Y mm"><input type="number" value={plate.yMm} onChange={(event) => onProjectChange((current) => ({ ...current, screens: current.screens.map((item) => item.id === screen?.id ? { ...item, supportPlates: item.supportPlates.map((candidate) => candidate.id === plate.id ? { ...candidate, yMm: Number(event.target.value), automatic: false } : candidate) } : item) }))} /></Field>
-              </div>
+              <small className="drag-hint">Trascina la piastra direttamente sul disegno.</small>
               <button className="button danger full" onClick={() => onProjectChange((current) => ({ ...current, screens: current.screens.map((item) => item.id === screen?.id ? { ...item, supportPlates: item.supportPlates.filter((candidate) => candidate.id !== plate.id) } : item) }))}>Elimina piastra</button>
-            </div>
+              </div>
+            </details>
           ))}
         </div>
       </Section>
@@ -787,18 +785,17 @@ function WeightPanel(props: InspectorProps) {
         <p className="warning-copy">Il manuale MG7S consente l'hanging beam sia sospesa sia come supporto a terra. La portata deve essere verificata sul modello reale.</p>
         <div className="run-list">
           {flybarMetrics.map((metric) => (
-            <div className={`run-card ${metric.valid ? "" : "invalid"}`} key={metric.flybar.id}>
-              <div className="run-card-title"><strong>{metric.flybar.label}</strong><span>{metric.flybar.mode === "hanging" ? "SOSPESA" : "APPOGGIO"}</span></div>
+            <details className={`run-card collapsible-card ${metric.valid ? "" : "invalid"}`} key={metric.flybar.id}>
+              <summary className="run-card-title"><strong>{metric.flybar.label}</strong><span>{metric.flybar.mode === "hanging" ? "SOSPESA" : "APPOGGIO"}</span></summary>
+              <div className="collapsible-card-body">
               <small>{metric.model?.manufacturer} {metric.model?.name}</small>
               <small><strong>{metric.supportedLoadKg.toFixed(1)} kg supportati / {metric.model?.maxLoadKg.toFixed(1) ?? "0"} kg</strong></small>
               <small>{metric.cabinetWeightKg.toFixed(1)} kg cabinet + {metric.cableAndAccessoryWeightKg.toFixed(1)} kg cavi/accessori + {metric.plateWeightKg.toFixed(1)} kg piastre</small>
               <small>Peso flybar: {metric.flybarWeightKg.toFixed(1)} kg · utilizzo {metric.utilizationPercent.toFixed(1)}%</small>
-              <div className="two-columns">
-                <Field label="X mm"><input type="number" value={metric.flybar.xMm} onChange={(event) => onProjectChange((current) => ({ ...current, screens: current.screens.map((item) => item.id === screen?.id ? { ...item, flybars: item.flybars.map((flybar) => flybar.id === metric.flybar.id ? { ...flybar, xMm: Number(event.target.value) } : flybar) } : item) }))} /></Field>
-                <Field label="Y mm"><input type="number" value={metric.flybar.yMm} onChange={(event) => onProjectChange((current) => ({ ...current, screens: current.screens.map((item) => item.id === screen?.id ? { ...item, flybars: item.flybars.map((flybar) => flybar.id === metric.flybar.id ? { ...flybar, yMm: Number(event.target.value) } : flybar) } : item) }))} /></Field>
-              </div>
+              <small className="drag-hint">Trascina la flybar direttamente sul disegno.</small>
               <button className="button danger full" onClick={() => onProjectChange((current) => ({ ...current, screens: current.screens.map((item) => item.id === screen?.id ? { ...item, flybars: item.flybars.filter((flybar) => flybar.id !== metric.flybar.id) } : item) }))}>Elimina flybar</button>
-            </div>
+              </div>
+            </details>
           ))}
         </div>
       </Section>
@@ -858,6 +855,11 @@ function LibraryPanel(props: InspectorProps) {
   const [selectedId, setSelectedId] = useState(libraries.cabinets[0]?.id ?? "");
   const [manufacturerFilter, setManufacturerFilter] = useState("all");
   const [importMessage, setImportMessage] = useState("");
+  const [libraryMessage, setLibraryMessage] = useState("");
+  const [remoteLibraryUrl, setRemoteLibraryUrl] = useState(() =>
+    localStorage.getItem("ledwall-designer:remote-library-url:v1") ??
+    "https://raw.githubusercontent.com/LorenzoApra/Ledwall-Designer/main/src/data/ledwall-library.csv",
+  );
   const cabinetManufacturers = [...new Set(libraries.cabinets.map((entry) => entry.manufacturer).filter(Boolean))].sort();
   const sourceItems = kind === "cabinet"
     ? libraries.cabinets
@@ -892,7 +894,7 @@ function LibraryPanel(props: InspectorProps) {
   }
   function addItem() {
     if (kind === "cabinet") {
-      const entry: CabinetModel = { id: createId("cabinet-model"), manufacturer: "", name: "Nuovo cabinet", widthMm: 500, heightMm: 500, depthMm: 0, pixelWidth: 128, pixelHeight: 128, pitchMm: 3.9, weightKg: 0, powerMaxW: 0, powerAverageW: 0, powerMinW: 0 };
+      const entry: CabinetModel = { id: createId("cabinet-model"), manufacturer: "", name: "Nuovo cabinet", widthMm: 500, heightMm: 500, depthMm: 0, pixelWidth: 128, pixelHeight: 128, pitchMm: 3.9, weightKg: 0, powerMaxW: 0, powerAverageW: 0 };
       onLibrariesChange({ ...libraries, cabinets: [...libraries.cabinets, entry] });
       setSelectedId(entry.id);
     } else if (kind === "controller") {
@@ -948,7 +950,6 @@ function LibraryPanel(props: InspectorProps) {
             weightKg: 0,
             powerMaxW: 0,
             powerAverageW: 0,
-            powerMinW: 0,
           };
       const cleanName = file.name.replace(/\.(?:rcfg|rcfgx|rfcg)$/i, "");
       const entry: CabinetModel = {
@@ -979,14 +980,78 @@ function LibraryPanel(props: InspectorProps) {
     }
   }
 
+  async function importLibraryCsv(file?: File): Promise<void> {
+    if (!file) return;
+    try {
+      const result = parseLibraryCsv(await file.text(), libraries);
+      onLibrariesChange(result.libraries);
+      setLibraryMessage(`Libreria importata da ${file.name}: ${formatLibraryCounts(result.counts)}.`);
+    } catch (error) {
+      setLibraryMessage(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async function updateFromRemoteLibrary(): Promise<void> {
+    try {
+      const url = new URL(remoteLibraryUrl.trim());
+      if (url.protocol !== "https:") throw new Error("Usa un URL HTTPS, ad esempio il link Raw del CSV su GitHub.");
+      setLibraryMessage("Download della libreria in corso…");
+      const response = await fetch(url, { cache: "no-store" });
+      if (!response.ok) throw new Error(`Download non riuscito: HTTP ${response.status}.`);
+      const result = parseLibraryCsv(await response.text(), libraries);
+      onLibrariesChange(result.libraries);
+      localStorage.setItem("ledwall-designer:remote-library-url:v1", url.toString());
+      localStorage.setItem("ledwall-designer:remote-library-updated-at:v1", new Date().toISOString());
+      setRemoteLibraryUrl(url.toString());
+      setLibraryMessage(`Libreria aggiornata: ${formatLibraryCounts(result.counts)}. La copia locale è pronta anche offline.`);
+    } catch (error) {
+      setLibraryMessage(`Libreria locale invariata. ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
   return (
     <>
-      <div className="segmented">
+      <Section title="Libreria condivisa">
+        <Field
+          label="URL CSV GitHub"
+          hint="Incolla il link Raw del file CSV. L'aggiornamento avviene solo premendo il pulsante e non è necessario per lavorare offline."
+        >
+          <input
+            type="url"
+            placeholder="https://raw.githubusercontent.com/.../ledwall-library.csv"
+            value={remoteLibraryUrl}
+            onChange={(event) => setRemoteLibraryUrl(event.target.value)}
+          />
+        </Field>
+        <button className="button primary full" disabled={!remoteLibraryUrl.trim()} onClick={() => void updateFromRemoteLibrary()}>
+          Aggiorna dalla rete
+        </button>
+        <Field label="Importa CSV locale" hint="Puoi usare lo stesso file scaricato da GitHub o modificato con Excel.">
+          <input type="file" accept=".csv,text/csv" onChange={(event) => {
+            void importLibraryCsv(event.target.files?.[0]);
+            event.currentTarget.value = "";
+          }} />
+        </Field>
+        {libraryMessage && <div className="info-strip">{libraryMessage}</div>}
+      </Section>
+      <div className="segmented library-tabs">
         <button className={kind === "cabinet" ? "active" : ""} onClick={() => { setKind("cabinet"); setManufacturerFilter("all"); setSelectedId(libraries.cabinets[0]?.id ?? ""); }}>Cabinet</button>
-        <button className={kind === "controller" ? "active" : ""} onClick={() => { setKind("controller"); setManufacturerFilter("all"); setSelectedId(libraries.controllers[0]?.id ?? ""); }}>NovaStar</button>
-        <button className={kind === "flybar" ? "active" : ""} onClick={() => { setKind("flybar"); setManufacturerFilter("all"); setSelectedId(libraries.flybars[0]?.id ?? ""); }}>Flybar</button>
-        <button className={kind === "accessory" ? "active" : ""} onClick={() => { setKind("accessory"); setManufacturerFilter("all"); setSelectedId(libraries.accessories[0]?.id ?? ""); }}>Accessori</button>
+        <button className={kind === "controller" ? "active" : ""} onClick={() => { setKind("controller"); setManufacturerFilter("all"); setSelectedId(libraries.controllers[0]?.id ?? ""); }}>Sending Card</button>
+        <button className={kind === "flybar" || kind === "accessory" ? "active" : ""} onClick={() => { setKind("flybar"); setManufacturerFilter("all"); setSelectedId(libraries.flybars[0]?.id ?? ""); }}>Accessori</button>
       </div>
+      {(kind === "flybar" || kind === "accessory") && (
+        <Section title="Tipo accessorio">
+          <select value={kind} onChange={(event) => {
+            const nextKind = event.target.value as "flybar" | "accessory";
+            setKind(nextKind);
+            setManufacturerFilter("all");
+            setSelectedId(nextKind === "flybar" ? libraries.flybars[0]?.id ?? "" : libraries.accessories[0]?.id ?? "");
+          }}>
+            <option value="flybar">Flybar</option>
+            <option value="accessory">Piastre e altri accessori</option>
+          </select>
+        </Section>
+      )}
       <Section title="Modelli" action={<button className="mini-button" onClick={addItem}>+ Nuovo</button>}>
         {kind !== "controller" && (
           <Field label="Produttore">
@@ -1021,14 +1086,14 @@ function LibraryPanel(props: InspectorProps) {
             <div className="three-columns"><NumberField label="L mm" value={cabinet.widthMm} onChange={(value) => updateCabinet({ widthMm: value })} /><NumberField label="H mm" value={cabinet.heightMm} onChange={(value) => updateCabinet({ heightMm: value })} /><NumberField label="P mm" value={cabinet.depthMm} onChange={(value) => updateCabinet({ depthMm: value })} /></div>
             <div className="two-columns"><NumberField label="Pixel W" value={cabinet.pixelWidth} onChange={(value) => updateCabinet({ pixelWidth: value })} /><NumberField label="Pixel H" value={cabinet.pixelHeight} onChange={(value) => updateCabinet({ pixelHeight: value })} /></div>
             <div className="two-columns"><NumberField label="Pitch mm" value={cabinet.pitchMm} step="0.1" onChange={(value) => updateCabinet({ pitchMm: value })} /><NumberField label="Peso kg" value={cabinet.weightKg} step="0.1" onChange={(value) => updateCabinet({ weightKg: value })} /></div>
-            <div className="three-columns"><NumberField label="W max" value={cabinet.powerMaxW} onChange={(value) => updateCabinet({ powerMaxW: value })} /><NumberField label="W medi" value={cabinet.powerAverageW} onChange={(value) => updateCabinet({ powerAverageW: value })} /><NumberField label="W min" value={cabinet.powerMinW} onChange={(value) => updateCabinet({ powerMinW: value })} /></div>
+            <div className="two-columns"><NumberField label="W max" value={cabinet.powerMaxW} onChange={(value) => updateCabinet({ powerMaxW: value })} /><NumberField label="W medi" value={cabinet.powerAverageW} onChange={(value) => updateCabinet({ powerAverageW: value })} /></div>
             <Field label="Receiving card"><input value={cabinet.receivingCard ?? ""} onChange={(e) => updateCabinet({ receivingCard: e.target.value })} /></Field>
             <Field label="Note"><textarea rows={3} value={cabinet.notes ?? ""} onChange={(e) => updateCabinet({ notes: e.target.value })} /></Field>
           </>; })()}
         </Section>
       )}
       {kind === "controller" && item && (
-        <Section title="Dati NovaStar">
+        <Section title="Dati Sending Card">
           {(() => { const controller = item as ControllerModel; return <>
             <Field label="Nome"><input value={controller.name} onChange={(e) => updateController({ name: e.target.value })} /></Field>
             <div className="two-columns"><NumberField label="Porte" value={controller.ethernetPorts} onChange={(value) => updateController({ ethernetPorts: value })} /><NumberField label="Pixel totali" value={controller.totalCapacityPixels} onChange={(value) => updateController({ totalCapacityPixels: value })} /></div>
@@ -1104,4 +1169,14 @@ function panelEyebrow(panel: InspectorPanel): string {
 
 function formatInt(value: number): string {
   return new Intl.NumberFormat("it-IT", { maximumFractionDigits: 0 }).format(value);
+}
+
+function formatPower(valueW: number): string {
+  return valueW >= 1000
+    ? `${new Intl.NumberFormat("it-IT", { maximumFractionDigits: 2 }).format(valueW / 1000)} kW`
+    : `${formatInt(valueW)} W`;
+}
+
+function formatLibraryCounts(counts: { cabinets: number; controllers: number; flybars: number; accessories: number }): string {
+  return `${counts.cabinets} cabinet, ${counts.controllers} Sending Card, ${counts.flybars} flybar, ${counts.accessories} altri accessori`;
 }

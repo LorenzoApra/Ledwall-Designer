@@ -129,11 +129,10 @@ export function calculatePowerLineMetrics(
         if (model) {
           sum.maxW += model.powerMaxW;
           sum.averageW += model.powerAverageW;
-          sum.minW += model.powerMinW;
         }
         return sum;
       },
-      { maxW: 0, averageW: 0, minW: 0 },
+      { maxW: 0, averageW: 0 },
     );
     return {
       line,

@@ -785,6 +785,34 @@ export default function App() {
     setStatus(`Piastra ${type === "aliscaf" ? "con aliscaf" : "semplice"} aggiunta`);
   }
 
+  function moveSupportPlate(screenId: string, id: string, xMm: number, yMm: number): void {
+    history.commit((current) => ({
+      ...current,
+      screens: current.screens.map((screen) => screen.id === screenId
+        ? {
+            ...screen,
+            supportPlates: screen.supportPlates.map((plate) => plate.id === id
+              ? { ...plate, xMm, yMm, automatic: false }
+              : plate),
+          }
+        : screen),
+    }));
+  }
+
+  function moveFlybar(screenId: string, id: string, xMm: number, yMm: number): void {
+    history.commit((current) => ({
+      ...current,
+      screens: current.screens.map((screen) => screen.id === screenId
+        ? {
+            ...screen,
+            flybars: screen.flybars.map((flybar) => flybar.id === id
+              ? { ...flybar, xMm, yMm }
+              : flybar),
+          }
+        : screen),
+    }));
+  }
+
   async function exportPng(kind: "master" | "screen"): Promise<void> {
     try {
       setBusy(true);
@@ -898,6 +926,9 @@ export default function App() {
           onSelectScreen={setSelectedScreenId}
           onSelectCabinet={selectCabinet}
           onMoveCabinet={moveCabinet}
+          onMoveSupportPlate={moveSupportPlate}
+          onMoveFlybar={moveFlybar}
+          onZoomChange={setZoom}
           onTraceCabinet={traceCabinet}
           onTracePowerCabinet={tracePowerCabinet}
           onFinishTrace={manualTracePort !== undefined ? finishManualTrace : finishManualPowerTrace}

@@ -11,6 +11,8 @@ import { createCabinetGrid } from "./layout";
 import { createAutomaticSupportPlates } from "./supportPlates";
 import { parseRcfgXml } from "./rcfg";
 import { calculateFlybarMetrics } from "./flybars";
+import { parseLibraryCsv } from "./libraryCsv";
+import bundledLibraryCsv from "../data/ledwall-library.csv?raw";
 import {
   appendCabinetToPortRun,
   assignAutomaticBackupPorts,
@@ -27,6 +29,22 @@ import { DEFAULT_LIBRARIES } from "../data/defaultLibraries";
 import { createDefaultProject } from "../data/defaultProject";
 
 describe("motore Ledwall Designer", () => {
+  it("carica la libreria CSV inclusa per uso online e offline", () => {
+    const parsed = parseLibraryCsv(bundledLibraryCsv, DEFAULT_LIBRARIES);
+    expect(parsed.counts).toEqual({ cabinets: 1, controllers: 7, flybars: 1, accessories: 3 });
+    expect(parsed.libraries.cabinets[0]).toMatchObject({
+      name: "MG7S 3.9 Outdoor",
+      pitchMm: 3.9,
+      powerMaxW: 210,
+      powerAverageW: 150,
+    });
+    expect(parsed.libraries.controllers.find((item) => item.id === "novastar-mx30")).toMatchObject({
+      family: "MX/COEX",
+      ethernetPorts: 10,
+    });
+    expect(parsed.libraries.flybars[0]).toMatchObject({ maxLoadKg: 200 });
+  });
+
   it("assegna porte di backup libere e riferimenti al secondo controller", () => {
     const runs = [
       { id: "p1", portNumber: 1, cabinetIds: ["c1"], color: "#111" },

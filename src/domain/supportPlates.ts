@@ -82,10 +82,9 @@ export function createAutomaticSupportPlates(
   const nearPixel = (a: number, b: number) => Math.abs(a - b) <= pixelTolerance;
   const plates: SupportPlate[] = [];
 
-  // Nei primi `requirementHeightMm` dal bordo superiore va inserita una
-  // connecting plate in ogni giunto interno formato da quattro cabinet.
-  // Per una matrice MG7S larga 12 cabinet e alta almeno 9, con soglia 4 m,
-  // sono quindi 8 file di giunti × 11 colonne = 88 piastre.
+  // Nei primi `requirementHeightMm` dal bordo superiore viene inserito un
+  // accessorio in ogni giunto interno formato da quattro cabinet. La regola
+  // usa la geometria reale ed è quindi indipendente da marca e modello.
   for (const upperLeft of items) {
     const jointPixelY = upperLeft.pixelBottom;
     const jointDistanceMm = (jointPixelY - minPixelY) *
@@ -132,7 +131,7 @@ export function createAutomaticSupportPlates(
   ];
   if (heightMm > 12_000) {
     warnings.push(
-      "Altezza superiore a 12 m: il manuale richiede di rinforzare la struttura sospesa o consultare il supporto tecnico.",
+      "Altezza superiore a 12 m: verificare il rinforzo della struttura e le prescrizioni del produttore del modello utilizzato.",
     );
   }
   return { plates, heightMm, required, warnings };
