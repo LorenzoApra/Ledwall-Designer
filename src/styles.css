@@ -281,6 +281,7 @@ input[type="file"] { height: auto; padding: 6px; font-size: 9px; }
 .run-card-title i { width: 9px; height: 9px; border-radius: 2px; }
 .run-card-title span { margin-left: auto; color: #7a8995; font-size: 9px; }
 .run-card small { display: block; margin-top: 4px; color: #6b7a86; font-size: 8.5px; }
+.run-card small.virtual-tail-warning { color: #ad5b12; font-weight: 700; }
 .run-card .run-order { max-height: 42px; overflow: auto; color: #3e4d59; line-height: 1.4; }
 .run-card .field { margin: 8px 0 0; }
 .run-card .mini-button.full { width: 100%; margin-top: 8px; }

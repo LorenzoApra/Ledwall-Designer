@@ -1,4 +1,8 @@
-import { calculateControllerCapacity } from "./capacity";
+import {
+  calculateCabinetGroupPixelLoad,
+  calculateControllerCapacity,
+  usesNovaLctVirtualTail,
+} from "./capacity";
 import { cabinetPixelCount, distanceBetweenCabinets } from "./geometry";
 import { createId } from "./id";
 import type {
@@ -83,8 +87,9 @@ export function createAutoWiring(
   }
 
   const candidates = createCandidates(screenCabinets);
+  const includeVirtualTail = usesNovaLctVirtualTail(controllerModel);
   const evaluated = candidates
-    .map((candidate) => evaluateCandidate(candidate, capacity.portCapacityPixels, modelById))
+    .map((candidate) => evaluateCandidate(candidate, capacity.portCapacityPixels, modelById, includeVirtualTail))
     .filter((item): item is NonNullable<typeof item> => item !== null)
     .sort((a, b) => a.groups.length - b.groups.length || a.distanceMm - b.distanceMm);
 
@@ -101,6 +106,28 @@ export function createAutoWiring(
     warnings.push(
       `Servono ${best.groups.length} porte ma ${controllerModel.name} ne dispone di ${controllerModel.ethernetPorts}.`,
     );
+  }
+
+  const totalLoadingPixels = best.groups.reduce(
+    (total, group) => total + calculateCabinetGroupPixelLoad(
+      group,
+      modelById,
+      includeVirtualTail,
+    ).loadingPixels,
+    0,
+  );
+  if (totalLoadingPixels > capacity.totalCapacityPixels) {
+    warnings.push(
+      `Carico totale NovaLCT ${formatNumber(totalLoadingPixels)} px superiore alla capacità del controller (${formatNumber(capacity.totalCapacityPixels)} px).`,
+    );
+  }
+  if (includeVirtualTail) {
+    const virtualPixels = totalLoadingPixels - totalPixels;
+    if (virtualPixels > 0) {
+      warnings.push(
+        `Serie ${controllerModel.family}: incluse ${formatNumber(virtualPixels)} tail virtuali dovute agli spazi vuoti nei rettangoli delle porte.`,
+      );
+    }
   }
 
   let runs = best.groups.map((group, index) => ({
@@ -228,23 +255,26 @@ function evaluateCandidate(
   candidate: Candidate,
   capacityPixels: number,
   modelById: Map<string, AppLibraries["cabinets"][number]>,
+  includeVirtualTail: boolean,
 ): { groups: CabinetInstance[][]; distanceMm: number; label: string } | null {
   const groups: CabinetInstance[][] = [];
   let current: CabinetInstance[] = [];
-  let currentPixels = 0;
 
   for (const cabinet of candidate.ordered) {
     const model = modelById.get(cabinet.modelId);
     if (!model) continue;
     const pixels = cabinetPixelCount(model);
     if (pixels > capacityPixels) return null;
-    if (current.length > 0 && currentPixels + pixels > capacityPixels) {
+    const nextLoad = calculateCabinetGroupPixelLoad(
+      [...current, cabinet],
+      modelById,
+      includeVirtualTail,
+    ).loadingPixels;
+    if (current.length > 0 && nextLoad > capacityPixels) {
       groups.push(current);
       current = [];
-      currentPixels = 0;
     }
     current.push(cabinet);
-    currentPixels += pixels;
   }
   if (current.length > 0) groups.push(current);
 

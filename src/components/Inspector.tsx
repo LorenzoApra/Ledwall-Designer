@@ -442,7 +442,14 @@ function DataPanel(props: InspectorProps) {
             <div className={`run-card ${metric.valid ? "" : "invalid"} ${metric.run.portNumber === props.manualTracePort ? "active-trace" : ""}`} key={metric.run.id}>
               <div className="run-card-title"><i style={{ background: metric.run.color }} /><strong>P-{metric.run.portNumber}</strong><span>{metric.run.cabinetIds.length} cab.</span></div>
               <div className="progress"><span style={{ width: `${Math.min(100, metric.utilizationPercent)}%`, background: metric.run.color }} /></div>
-              <small>{formatInt(metric.pixels)} / {formatInt(metric.capacityPixels)} px · {metric.utilizationPercent.toFixed(1)}%</small>
+              <small>
+                {metric.virtualTailApplied ? "Carico NovaLCT" : "Carico"}: {formatInt(metric.loadingPixels)} / {formatInt(metric.capacityPixels)} px · {metric.utilizationPercent.toFixed(1)}%
+              </small>
+              {metric.virtualTailApplied && (
+                <small className={metric.virtualPixels > 0 ? "virtual-tail-warning" : ""}>
+                  {formatInt(metric.pixels)} px reali + {formatInt(metric.virtualPixels)} px virtuali · rettangolo {formatInt(metric.loadingWidthPixels)}×{formatInt(metric.loadingHeightPixels)} px
+                </small>
+              )}
               <small className="run-order">Ordine: {metric.run.cabinetIds.map((id) => {
                 const cabinet = project.cabinets.find((item) => item.id === id);
                 return cabinet ? `${cabinet.row},${cabinet.column}` : "?";

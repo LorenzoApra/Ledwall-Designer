@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { message } from "@tauri-apps/plugin-dialog";
 import { BulkGridModal, type BulkGridValues } from "./components/BulkGridModal";
 import { CanvasEditor } from "./components/CanvasEditor";
 import { Inspector, type InspectorPanel } from "./components/Inspector";
@@ -33,6 +35,7 @@ import { renderMasterPixelmap, renderScreenPixelmap } from "./export/pixelmap";
 import {
   canvasToPngBytes,
   openProjectFile,
+  isTauriRuntime,
   sanitizeFilename,
   saveBinary,
   saveProjectFile,
@@ -65,9 +68,12 @@ export default function App() {
   const [snap, setSnap] = useState(true);
   const [bulkOpen, setBulkOpen] = useState(false);
   const [filePath, setFilePath] = useState<string>();
+  const [savedProject, setSavedProject] = useState(history.project);
   const [status, setStatus] = useState("Pronto");
   const [busy, setBusy] = useState(false);
+  const closeDialogOpen = useRef(false);
   const project = history.project;
+  const hasUnsavedChanges = project !== savedProject;
   const viewMode: ViewMode =
     panel === "data" ? "data" : panel === "power" ? "power" : panel === "weight" ? "weight" : panel === "pixelmap" ? "pixelmap" : "design";
   const selectedScreen = project.screens.find((screen) => screen.id === selectedScreenId) ?? project.screens[0];
@@ -128,16 +134,70 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKeyDown);
   });
 
-  async function handleSave(saveAs: boolean): Promise<void> {
+  useEffect(() => {
+    if (!isTauriRuntime()) {
+      if (!hasUnsavedChanges) return;
+      const onBeforeUnload = (event: BeforeUnloadEvent) => {
+        event.preventDefault();
+        event.returnValue = "";
+      };
+      window.addEventListener("beforeunload", onBeforeUnload);
+      return () => window.removeEventListener("beforeunload", onBeforeUnload);
+    }
+
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void getCurrentWindow().onCloseRequested(async (event) => {
+      if (!hasUnsavedChanges) return;
+      event.preventDefault();
+      if (closeDialogOpen.current) return;
+      closeDialogOpen.current = true;
+      try {
+        const choice = await message(
+          "Il progetto contiene modifiche non salvate. Vuoi salvarle prima di uscire?",
+          {
+            title: "Salvare il progetto?",
+            kind: "warning",
+            buttons: {
+              yes: "Salva",
+              no: "Non salvare",
+              cancel: "Annulla",
+            },
+          },
+        );
+        if (choice === "Salva") {
+          const saved = await handleSave(false);
+          if (saved) await getCurrentWindow().destroy();
+        } else if (choice === "Non salvare") {
+          await getCurrentWindow().destroy();
+        }
+      } finally {
+        closeDialogOpen.current = false;
+      }
+    }).then((stopListening) => {
+      if (disposed) stopListening();
+      else unlisten = stopListening;
+    });
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [hasUnsavedChanges, project, filePath]);
+
+  async function handleSave(saveAs: boolean): Promise<boolean> {
     try {
       setBusy(true);
       const result = await saveProjectFile(project, saveAs ? undefined : filePath);
       if (result) {
         setFilePath(result.path);
+        setSavedProject(project);
         setStatus(`Salvato: ${result.path.split("/").at(-1)}`);
+        return true;
       }
+      return false;
     } catch (error) {
       setStatus(errorMessage(error));
+      return false;
     } finally {
       setBusy(false);
     }
@@ -150,6 +210,7 @@ export default function App() {
       if (!result) return;
       history.replace(result.project);
       setFilePath(result.path);
+      setSavedProject(result.project);
       setSelectedScreenId(result.project.screens[0]?.id);
       setSelectedCabinetId(undefined);
       setSelectedCabinetIds([]);
@@ -166,6 +227,7 @@ export default function App() {
   function handleNew(): void {
     const next = createDefaultProject();
     history.replace(next);
+    setSavedProject(next);
     setSelectedScreenId(next.screens[0]?.id);
     setSelectedCabinetId(undefined);
     setSelectedCabinetIds([]);

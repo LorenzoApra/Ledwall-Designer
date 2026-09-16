@@ -45,6 +45,10 @@ calcoli, pixelmap e report continuano a funzionare senza connessione Internet.
 Il campo **Nome progetto / Evento** alimenta titolo, nomi dei file e
 intestazione della relazione tecnica.
 
+Se si chiude l'app con modifiche non salvate, viene richiesto se salvare il
+progetto, uscire senza salvare oppure annullare la chiusura. Se il salvataggio
+viene annullato o non riesce, l'app rimane aperta.
+
 ## Cablaggio dati manuale
 
 Nella vista **Dati**, selezionare il primo cabinet e scegliere la porta di
@@ -58,6 +62,14 @@ Nel riquadro **Porte e backup** è possibile assegnare automaticamente le porte
 libere oppure scegliere manualmente, per ogni main, la porta di backup interna
 e il riferimento a porta/controller di riserva. Il PDF cablaggi riporta la
 tabella completa; i percorsi usano linee ad alto contrasto e frecce maggiorate.
+
+Per i controller delle serie **MCTRL** e **VX**, il carico di ogni porta segue
+la regola NovaLCT/SmartLCT: viene calcolato sul rettangolo in pixel che racchiude
+tutti i cabinet assegnati alla porta. Gli spazi vuoti di forme a L o irregolari
+sono quindi conteggiati come *tail virtuali*. Il pannello mostra separatamente
+pixel reali, pixel virtuali e dimensioni del rettangolo; il cablaggio automatico
+divide la forma su più porte quando il rettangolo supera la capacità disponibile.
+Le serie COEX/MX continuano invece a usare la somma dei soli pixel reali.
 
 Nella vista **Elettrico**, selezionare il primo cabinet e usare **+ Nuova linea**
 nella toolbar (`N`), oppure scegliere una linea esistente. Trascinare sui cabinet nell'ordine fisico del

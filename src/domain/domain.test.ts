@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calculateControllerCapacity } from "./capacity";
+import { calculateControllerCapacity, calculatePortMetrics } from "./capacity";
 import {
   appendCabinetToPowerLine,
   calculatePowerLineMetrics,
@@ -29,9 +29,60 @@ import { DEFAULT_LIBRARIES } from "../data/defaultLibraries";
 import { createDefaultProject } from "../data/defaultProject";
 
 describe("motore Ledwall Designer", () => {
+  it("conteggia le tail virtuali NovaLCT per una porta MCTRL/VX a forma di L", () => {
+    const project = createDefaultProject();
+    const screen = project.screens[0];
+    const model = DEFAULT_LIBRARIES.cabinets[0];
+    const fullGrid = createCabinetGrid(screen, model, {
+      rows: 5,
+      columns: 15,
+      rotation: 0,
+    });
+    const lShape = fullGrid.filter((cabinet) => cabinet.row === 1 || cabinet.column <= 2);
+    project.cabinets = lShape;
+    screen.cabinetIds = lShape.map((cabinet) => cabinet.id);
+    const controller = project.controllers[0];
+    controller.mode.frameRate = 60;
+    controller.portRuns = [{ id: "l-port", portNumber: 1, cabinetIds: screen.cabinetIds, color: "#00a" }];
+
+    const metric = calculatePortMetrics(project, DEFAULT_LIBRARIES, controller)[0];
+    expect(lShape).toHaveLength(23);
+    expect(metric.pixels).toBe(23 * 128 * 128);
+    expect(metric.loadingWidthPixels).toBe(15 * 128);
+    expect(metric.loadingHeightPixels).toBe(5 * 128);
+    expect(metric.loadingPixels).toBe(15 * 5 * 128 * 128);
+    expect(metric.virtualPixels).toBe((15 * 5 - 23) * 128 * 128);
+    expect(metric.virtualTailApplied).toBe(true);
+    expect(metric.utilizationPercent).toBeCloseTo((1_228_800 / 650_000) * 100);
+    expect(metric.valid).toBe(false);
+
+    controller.modelId = "novastar-mx30";
+    const coexMetric = calculatePortMetrics(project, DEFAULT_LIBRARIES, controller)[0];
+    expect(coexMetric.virtualTailApplied).toBe(false);
+    expect(coexMetric.loadingPixels).toBe(coexMetric.pixels);
+  });
+
+  it("divide automaticamente una forma a L MCTRL in porte con ingombri validi", () => {
+    const project = createDefaultProject();
+    const screen = project.screens[0];
+    const model = DEFAULT_LIBRARIES.cabinets[0];
+    const fullGrid = createCabinetGrid(screen, model, { rows: 5, columns: 15, rotation: 0 });
+    const lShape = fullGrid.filter((cabinet) => cabinet.row === 1 || cabinet.column <= 2);
+    project.cabinets = lShape;
+    screen.cabinetIds = lShape.map((cabinet) => cabinet.id);
+    const controller = project.controllers[0];
+    controller.mode.frameRate = 60;
+
+    const wiring = createAutoWiring(screen, lShape, controller, DEFAULT_LIBRARIES);
+    controller.portRuns = wiring.runs;
+    const metrics = calculatePortMetrics(project, DEFAULT_LIBRARIES, controller);
+    expect(wiring.runs.length).toBeGreaterThan(1);
+    expect(metrics.every((metric) => metric.valid)).toBe(true);
+  });
+
   it("carica la libreria CSV inclusa per uso online e offline", () => {
     const parsed = parseLibraryCsv(bundledLibraryCsv, DEFAULT_LIBRARIES);
-    expect(parsed.counts).toEqual({ cabinets: 1, controllers: 7, flybars: 1, accessories: 3 });
+    expect(parsed.counts).toEqual({ cabinets: 1, controllers: 7, flybars: 1, accessories: 1 });
     expect(parsed.libraries.cabinets[0]).toMatchObject({
       name: "MG7S 3.9 Outdoor",
       pitchMm: 3.9,

@@ -234,7 +234,14 @@ export interface CapacityResult {
 
 export interface PortMetrics {
   run: PortRun;
+  /** Pixel realmente presenti nei cabinet assegnati. */
   pixels: number;
+  /** Pixel conteggiati da NovaLCT per il caricamento della porta. */
+  loadingPixels: number;
+  virtualPixels: number;
+  loadingWidthPixels: number;
+  loadingHeightPixels: number;
+  virtualTailApplied: boolean;
   capacityPixels: number;
   utilizationPercent: number;
   valid: boolean;

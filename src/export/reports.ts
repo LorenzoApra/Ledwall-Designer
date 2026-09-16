@@ -246,9 +246,15 @@ function drawBackupTable(
   pdf.setFont("helvetica", "normal");
   pdf.setFontSize(7.5);
   const rows = controller?.portRuns.map(
-    (run) =>
-      `Main P-${run.portNumber} -> backup interno P-${run.backupPortNumber ?? "N/D"} | ` +
-      `${run.backupControllerName ?? "backup controller non definito"}`,
+    (run) => {
+      const metric = calculatePortMetrics(project, libraries, controller).find((item) => item.run.id === run.id);
+      const load = metric
+        ? ` | carico ${formatInt(metric.loadingPixels)} px (${formatDecimal(metric.utilizationPercent)}%` +
+          `${metric.virtualPixels ? `, ${formatInt(metric.virtualPixels)} virtuali` : ""})`
+        : "";
+      return `Main P-${run.portNumber} -> backup interno P-${run.backupPortNumber ?? "N/D"} | ` +
+        `${run.backupControllerName ?? "backup controller non definito"}${load}`;
+    },
   );
   (rows ?? []).slice(0, 8).forEach((row, index) => pdf.text(row, x, y + 5 + index * 4));
 }
