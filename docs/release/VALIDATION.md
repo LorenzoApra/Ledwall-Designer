@@ -18,18 +18,30 @@
   available and offline release responses; network lookup has an 8-second timeout.
 - Workflow YAML parsed, release metadata checked and `git diff --check` passed.
 
-## Pending before public release
+## GitHub builds completed
 
-- Execute the GitHub workflow and compile the Windows x64 NSIS package.
+[Build desktop release #2](https://github.com/LorenzoApra/Ledwall-Designer/actions/runs/35742460856)
+completed successfully for macOS arm64, macOS x64 and Windows x64. All three jobs
+passed the 26 domain tests and produced their installers and SHA-256 files.
+
+Build commit: `3e60717db77c7cd6ca05124c47035f6788408f8a`. Application source and
+dependencies are identical to tag `v1.0.0`; the only subsequent code change
+normalizes Windows CRLF line endings in the release metadata checker. The original
+tag run passed both Mac builds but failed this check on Windows. A manual run of
+the corrected commit succeeded. The draft is assembled from that single run. The three downloaded artifact ZIPs
+and all installer checksums were verified before upload; `SHA256SUMS.txt` includes
+all three installers.
+
+## Pending before public release
 - Smoke-test the final packages on Apple Silicon, an Intel Mac and Windows.
   Architecture/signature validation and cross-compilation do not replace launch,
   save/open and export tests on each target system.
-- Review the public release draft, complete all three checksums and publish only
-  after owner approval.
+- Review the release draft and publish only after owner approval.
 - Enable GitHub Pages and run its manual deployment after owner approval.
 
-No GitHub push, tag, release creation or Pages deployment was performed as part of
-this preparation. The website is available only from the local preview server.
+Code, documentation and the version tag are on GitHub. The release is being
+prepared as a draft and has not been published. GitHub Pages has not been deployed;
+the website is available from the local preview server.
 
 ## Local build notes
 
