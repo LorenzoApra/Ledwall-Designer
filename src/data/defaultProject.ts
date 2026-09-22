@@ -24,7 +24,7 @@ export function createDefaultProject(): LedwallProject {
     id: projectId,
     metadata: {
       projectName: "Nuovo progetto",
-      company: "ATS Srl",
+      company: "",
       client: "",
       event: "",
       location: "",

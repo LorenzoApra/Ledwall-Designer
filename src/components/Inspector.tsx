@@ -857,15 +857,28 @@ function PixelmapPanel(props: InspectorProps) {
 }
 
 function LibraryPanel(props: InspectorProps) {
+  const officialLibraryUrl = "https://raw.githubusercontent.com/LorenzoApra/Ledwall-Designer/refs/heads/main/src/data/ledwall-library.csv";
   const { libraries, onLibrariesChange } = props;
   const [kind, setKind] = useState<"cabinet" | "controller" | "flybar" | "accessory">("cabinet");
   const [selectedId, setSelectedId] = useState(libraries.cabinets[0]?.id ?? "");
   const [manufacturerFilter, setManufacturerFilter] = useState("all");
   const [importMessage, setImportMessage] = useState("");
   const [libraryMessage, setLibraryMessage] = useState("");
-  const [remoteLibraryUrl, setRemoteLibraryUrl] = useState(() =>
-    localStorage.getItem("ledwall-designer:remote-library-url:v1") ??
-    "https://raw.githubusercontent.com/LorenzoApra/Ledwall-Designer/main/src/data/ledwall-library.csv",
+  const [remoteLibraryUrl, setRemoteLibraryUrl] = useState(() => {
+    const stored = localStorage.getItem("ledwall-designer:remote-library-url:v1");
+    if (!stored) return officialLibraryUrl;
+    try {
+      const url = new URL(stored);
+      if (url.hostname === "raw.githubusercontent.com" && url.pathname.endsWith("/src/data/ledwall-library.csv")) {
+        return officialLibraryUrl;
+      }
+    } catch {
+      return officialLibraryUrl;
+    }
+    return stored;
+  });
+  const [remoteUpdatedAt, setRemoteUpdatedAt] = useState(() =>
+    localStorage.getItem("ledwall-designer:remote-library-updated-at:v1") ?? "",
   );
   const cabinetManufacturers = [...new Set(libraries.cabinets.map((entry) => entry.manufacturer).filter(Boolean))].sort();
   const sourceItems = kind === "cabinet"
@@ -1003,13 +1016,27 @@ function LibraryPanel(props: InspectorProps) {
       const url = new URL(remoteLibraryUrl.trim());
       if (url.protocol !== "https:") throw new Error("Usa un URL HTTPS, ad esempio il link Raw del CSV su GitHub.");
       setLibraryMessage("Download della libreria in corso…");
-      const response = await fetch(url, { cache: "no-store" });
+      const downloadUrl = new URL(url);
+      downloadUrl.searchParams.set("ledwall_designer_refresh", String(Date.now()));
+      const response = await fetch(downloadUrl, { cache: "no-store" });
       if (!response.ok) throw new Error(`Download non riuscito: HTTP ${response.status}.`);
       const result = parseLibraryCsv(await response.text(), libraries);
       onLibrariesChange(result.libraries);
+      const updatedAt = new Date().toISOString();
       localStorage.setItem("ledwall-designer:remote-library-url:v1", url.toString());
-      localStorage.setItem("ledwall-designer:remote-library-updated-at:v1", new Date().toISOString());
+      localStorage.setItem("ledwall-designer:remote-library-updated-at:v1", updatedAt);
       setRemoteLibraryUrl(url.toString());
+      setRemoteUpdatedAt(updatedAt);
+      setManufacturerFilter("all");
+      setSelectedId(
+        kind === "cabinet"
+          ? result.libraries.cabinets[0]?.id ?? ""
+          : kind === "controller"
+            ? result.libraries.controllers[0]?.id ?? ""
+            : kind === "flybar"
+              ? result.libraries.flybars[0]?.id ?? ""
+              : result.libraries.accessories[0]?.id ?? "",
+      );
       setLibraryMessage(`Libreria aggiornata: ${formatLibraryCounts(result.counts)}. La copia locale è pronta anche offline.`);
     } catch (error) {
       setLibraryMessage(`Libreria locale invariata. ${error instanceof Error ? error.message : String(error)}`);
@@ -1033,6 +1060,15 @@ function LibraryPanel(props: InspectorProps) {
         <button className="button primary full" disabled={!remoteLibraryUrl.trim()} onClick={() => void updateFromRemoteLibrary()}>
           Aggiorna dalla rete
         </button>
+        <div className="info-strip">
+          In uso: {formatLibraryCounts({
+            cabinets: libraries.cabinets.length,
+            controllers: libraries.controllers.length,
+            flybars: libraries.flybars.length,
+            accessories: libraries.accessories.length,
+          })}
+          {remoteUpdatedAt ? ` · ultimo aggiornamento ${new Date(remoteUpdatedAt).toLocaleString("it-IT")}` : ""}
+        </div>
         <Field label="Importa CSV locale" hint="Puoi usare lo stesso file scaricato da GitHub o modificato con Excel.">
           <input type="file" accept=".csv,text/csv" onChange={(event) => {
             void importLibraryCsv(event.target.files?.[0]);

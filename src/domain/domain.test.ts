@@ -27,8 +27,37 @@ import {
 } from "./weight";
 import { DEFAULT_LIBRARIES } from "../data/defaultLibraries";
 import { createDefaultProject } from "../data/defaultProject";
+import { cabinetsForManufacturer } from "../components/BulkGridModal";
+import { mergeBundledLibraryAdditions } from "../state/useLibraries";
 
 describe("motore Ledwall Designer", () => {
+  it("crea i nuovi progetti senza un'azienda predefinita", () => {
+    expect(createDefaultProject().metadata.company).toBe("");
+  });
+
+  it("filtra i cabinet bulk per produttore", () => {
+    const libraries = structuredClone(DEFAULT_LIBRARIES);
+    libraries.cabinets.push({
+      ...libraries.cabinets[0],
+      id: "secondo-produttore",
+      manufacturer: "Altro produttore",
+    });
+    expect(cabinetsForManufacturer(libraries, "Altro produttore").map((item) => item.id))
+      .toEqual(["secondo-produttore"]);
+    expect(cabinetsForManufacturer(libraries, "all")).toHaveLength(2);
+  });
+
+  it("aggiunge i nuovi elementi inclusi senza sovrascrivere le modifiche locali", () => {
+    const bundled = structuredClone(DEFAULT_LIBRARIES);
+    bundled.cabinets.push({ ...bundled.cabinets[0], id: "nuovo-online", name: "Nuovo online" });
+    const stored = structuredClone(DEFAULT_LIBRARIES);
+    stored.cabinets[0].name = "Nome modificato localmente";
+    const merged = mergeBundledLibraryAdditions(bundled, stored);
+    expect(merged.cabinets.map((item) => item.id)).toContain("nuovo-online");
+    expect(merged.cabinets.find((item) => item.id === stored.cabinets[0].id)?.name)
+      .toBe("Nome modificato localmente");
+  });
+
   it("conteggia le tail virtuali NovaLCT per una porta MCTRL/VX a forma di L", () => {
     const project = createDefaultProject();
     const screen = project.screens[0];
@@ -82,7 +111,7 @@ describe("motore Ledwall Designer", () => {
 
   it("carica la libreria CSV inclusa per uso online e offline", () => {
     const parsed = parseLibraryCsv(bundledLibraryCsv, DEFAULT_LIBRARIES);
-    expect(parsed.counts).toEqual({ cabinets: 1, controllers: 7, flybars: 1, accessories: 1 });
+    expect(parsed.counts).toEqual({ cabinets: 14, controllers: 14, flybars: 5, accessories: 7 });
     expect(parsed.libraries.cabinets[0]).toMatchObject({
       name: "MG7S 3.9 Outdoor",
       pitchMm: 3.9,

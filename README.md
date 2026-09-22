@@ -123,10 +123,14 @@ La libreria iniziale viene caricata da
 `src/data/ledwall-library.csv`, un CSV con separatore `;` modificabile anche in
 Excel. L'app conserva una copia locale e continua a funzionare completamente
 offline. Il campo **URL CSV GitHub** è già impostato sul link Raw del file nel
-repository; **Aggiorna dalla rete** scarica e valida esplicitamente una nuova
-copia senza sovrascrivere quella locale in caso di errore. È disponibile anche
-l'importazione di un CSV locale. Le modifiche manuali e l'importazione
-RCFG/RCFGX rimangono disponibili.
+repository pubblico. I vecchi indirizzi Raw, inclusi quelli con token, vengono
+sostituiti automaticamente con l'indirizzo pubblico corrente. All'avvio, gli
+elementi nuovi inclusi nel CSV dell'app vengono aggiunti alla copia locale
+senza sovrascrivere le modifiche manuali già presenti. **Aggiorna dalla rete**
+scarica senza cache e valida esplicitamente una nuova copia, mostrando data e
+quantità degli elementi ricevuti, e non modifica la libreria locale in caso di
+errore. È disponibile anche l'importazione di un CSV locale. Le modifiche
+manuali e l'importazione RCFG/RCFGX rimangono disponibili.
 
 ## Flybar, accessori e report
 

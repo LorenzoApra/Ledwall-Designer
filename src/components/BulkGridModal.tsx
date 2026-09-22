@@ -12,6 +12,12 @@ export interface BulkGridValues {
   replaceExisting: boolean;
 }
 
+export function cabinetsForManufacturer(libraries: AppLibraries, manufacturer: string) {
+  return manufacturer === "all"
+    ? libraries.cabinets
+    : libraries.cabinets.filter((item) => item.manufacturer === manufacturer);
+}
+
 export function BulkGridModal({
   libraries,
   onClose,
@@ -21,6 +27,10 @@ export function BulkGridModal({
   onClose: () => void;
   onCreate: (values: BulkGridValues) => void;
 }) {
+  const manufacturers = [...new Set(
+    libraries.cabinets.map((item) => item.manufacturer).filter(Boolean),
+  )].sort((a, b) => a.localeCompare(b, "it"));
+  const [manufacturer, setManufacturer] = useState("all");
   const [values, setValues] = useState<BulkGridValues>({
     modelId: libraries.cabinets[0]?.id ?? "",
     rows: 8,
@@ -30,6 +40,7 @@ export function BulkGridModal({
     startPixelY: 0,
     replaceExisting: true,
   });
+  const visibleCabinets = cabinetsForManufacturer(libraries, manufacturer);
   const model = libraries.cabinets.find((item) => item.id === values.modelId);
   const width = model
     ? (values.rotation === 90 || values.rotation === 270 ? model.pixelHeight : model.pixelWidth) * values.columns
@@ -49,9 +60,20 @@ export function BulkGridModal({
           <button className="icon-button" onClick={onClose} aria-label="Chiudi">×</button>
         </div>
         <div className="modal-body grid-form">
+          <Field label="Produttore">
+            <select value={manufacturer} onChange={(event) => {
+              const nextManufacturer = event.target.value;
+              const nextCabinets = cabinetsForManufacturer(libraries, nextManufacturer);
+              setManufacturer(nextManufacturer);
+              setValues((current) => ({ ...current, modelId: nextCabinets[0]?.id ?? "" }));
+            }}>
+              <option value="all">Tutti i produttori</option>
+              {manufacturers.map((item) => <option key={item} value={item}>{item}</option>)}
+            </select>
+          </Field>
           <Field label="Modello cabinet">
             <select value={values.modelId} onChange={(event) => setValues({ ...values, modelId: event.target.value })}>
-              {libraries.cabinets.map((item) => (
+              {visibleCabinets.map((item) => (
                 <option key={item.id} value={item.id}>{item.manufacturer} {item.name}</option>
               ))}
             </select>
@@ -96,4 +118,3 @@ export function BulkGridModal({
     </div>
   );
 }
-

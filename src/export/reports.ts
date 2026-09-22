@@ -281,7 +281,12 @@ function drawHeader(
     14,
     17,
   );
-  pdf.text(`${project.metadata.company} - ${project.metadata.date}`, pageWidth - 14, 17, { align: "right" });
+  pdf.text(
+    [project.metadata.company, project.metadata.date].filter(Boolean).join(" - "),
+    pageWidth - 14,
+    17,
+    { align: "right" },
+  );
   pdf.setTextColor(20, 28, 36);
   return 32;
 }
