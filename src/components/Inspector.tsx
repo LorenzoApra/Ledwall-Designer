@@ -864,19 +864,6 @@ function LibraryPanel(props: InspectorProps) {
   const [manufacturerFilter, setManufacturerFilter] = useState("all");
   const [importMessage, setImportMessage] = useState("");
   const [libraryMessage, setLibraryMessage] = useState("");
-  const [remoteLibraryUrl, setRemoteLibraryUrl] = useState(() => {
-    const stored = localStorage.getItem("ledwall-designer:remote-library-url:v1");
-    if (!stored) return officialLibraryUrl;
-    try {
-      const url = new URL(stored);
-      if (url.hostname === "raw.githubusercontent.com" && url.pathname.endsWith("/src/data/ledwall-library.csv")) {
-        return officialLibraryUrl;
-      }
-    } catch {
-      return officialLibraryUrl;
-    }
-    return stored;
-  });
   const [remoteUpdatedAt, setRemoteUpdatedAt] = useState(() =>
     localStorage.getItem("ledwall-designer:remote-library-updated-at:v1") ?? "",
   );
@@ -1013,8 +1000,7 @@ function LibraryPanel(props: InspectorProps) {
 
   async function updateFromRemoteLibrary(): Promise<void> {
     try {
-      const url = new URL(remoteLibraryUrl.trim());
-      if (url.protocol !== "https:") throw new Error("Usa un URL HTTPS, ad esempio il link Raw del CSV su GitHub.");
+      const url = new URL(officialLibraryUrl);
       setLibraryMessage("Download della libreria in corso…");
       const downloadUrl = new URL(url);
       downloadUrl.searchParams.set("ledwall_designer_refresh", String(Date.now()));
@@ -1023,9 +1009,8 @@ function LibraryPanel(props: InspectorProps) {
       const result = parseLibraryCsv(await response.text(), libraries);
       onLibrariesChange(result.libraries);
       const updatedAt = new Date().toISOString();
-      localStorage.setItem("ledwall-designer:remote-library-url:v1", url.toString());
+      localStorage.removeItem("ledwall-designer:remote-library-url:v1");
       localStorage.setItem("ledwall-designer:remote-library-updated-at:v1", updatedAt);
-      setRemoteLibraryUrl(url.toString());
       setRemoteUpdatedAt(updatedAt);
       setManufacturerFilter("all");
       setSelectedId(
@@ -1046,18 +1031,7 @@ function LibraryPanel(props: InspectorProps) {
   return (
     <>
       <Section title="Libreria condivisa">
-        <Field
-          label="URL CSV GitHub"
-          hint="Incolla il link Raw del file CSV. L'aggiornamento avviene solo premendo il pulsante e non è necessario per lavorare offline."
-        >
-          <input
-            type="url"
-            placeholder="https://raw.githubusercontent.com/.../ledwall-library.csv"
-            value={remoteLibraryUrl}
-            onChange={(event) => setRemoteLibraryUrl(event.target.value)}
-          />
-        </Field>
-        <button className="button primary full" disabled={!remoteLibraryUrl.trim()} onClick={() => void updateFromRemoteLibrary()}>
+        <button className="button primary full" onClick={() => void updateFromRemoteLibrary()}>
           Aggiorna dalla rete
         </button>
         <div className="info-strip">

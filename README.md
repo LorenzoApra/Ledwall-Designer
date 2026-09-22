@@ -122,10 +122,9 @@ massimo e medio.
 La libreria iniziale viene caricata da
 `src/data/ledwall-library.csv`, un CSV con separatore `;` modificabile anche in
 Excel. L'app conserva una copia locale e continua a funzionare completamente
-offline. Il campo **URL CSV GitHub** è già impostato sul link Raw del file nel
-repository pubblico. I vecchi indirizzi Raw, inclusi quelli con token, vengono
-sostituiti automaticamente con l'indirizzo pubblico corrente. All'avvio, gli
-elementi nuovi inclusi nel CSV dell'app vengono aggiunti alla copia locale
+offline. L'indirizzo del CSV pubblico è configurato internamente e non viene
+mostrato nell'interfaccia: **Aggiorna dalla rete** usa sempre la sorgente
+ufficiale. All'avvio, gli elementi nuovi inclusi nel CSV dell'app vengono aggiunti alla copia locale
 senza sovrascrivere le modifiche manuali già presenti. **Aggiorna dalla rete**
 scarica senza cache e valida esplicitamente una nuova copia, mostrando data e
 quantità degli elementi ricevuti, e non modifica la libreria locale in caso di

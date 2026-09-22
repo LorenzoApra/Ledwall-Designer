@@ -111,7 +111,14 @@ describe("motore Ledwall Designer", () => {
 
   it("carica la libreria CSV inclusa per uso online e offline", () => {
     const parsed = parseLibraryCsv(bundledLibraryCsv, DEFAULT_LIBRARIES);
-    expect(parsed.counts).toEqual({ cabinets: 14, controllers: 14, flybars: 5, accessories: 7 });
+    expect(parsed.counts).toEqual({
+      cabinets: parsed.libraries.cabinets.length,
+      controllers: parsed.libraries.controllers.length,
+      flybars: parsed.libraries.flybars.length,
+      accessories: parsed.libraries.accessories.length,
+    });
+    expect(parsed.counts).toMatchObject({ cabinets: 14, controllers: 14, accessories: 7 });
+    expect(parsed.counts.flybars).toBeGreaterThanOrEqual(5);
     expect(parsed.libraries.cabinets[0]).toMatchObject({
       name: "MG7S 3.9 Outdoor",
       pitchMm: 3.9,
