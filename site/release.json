@@ -1,0 +1,9 @@
+{
+  "version": "1.0.0",
+  "repository": "LorenzoApra/Ledwall-Designer",
+  "assets": {
+    "macos-arm64": "Ledwall-Designer-1.0.0-macos-arm64.dmg",
+    "macos-x64": "Ledwall-Designer-1.0.0-macos-x64.dmg",
+    "windows-x64": "Ledwall-Designer-1.0.0-windows-x64-setup.exe"
+  }
+}

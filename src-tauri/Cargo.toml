@@ -1,7 +1,9 @@
 [package]
 name = "ledwall-designer"
-version = "0.1.16"
-description = "Progettazione tecnica di ledwall NovaStar"
+version = "1.0.0"
+description = "Offline LED wall design and technical documentation"
+license = "GPL-3.0-only"
+repository = "https://github.com/LorenzoApra/Ledwall-Designer"
 authors = ["ATS"]
 edition = "2021"
 

@@ -1,7 +1,7 @@
 {
   "name": "ledwall-designer",
   "private": true,
-  "version": "0.1.16",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -9,7 +9,9 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "site:preview": "node scripts/preview-site.mjs",
+    "release:check": "node scripts/check-release.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "2.11.1",
@@ -31,5 +33,6 @@
     "vite": "8.2.2",
     "vitest": "4.1.11"
   },
-  "packageManager": "pnpm@11.19.0"
+  "packageManager": "pnpm@11.19.0",
+  "license": "GPL-3.0-only"
 }

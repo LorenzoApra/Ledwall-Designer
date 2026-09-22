@@ -9,3 +9,6 @@ output/
 *.tsbuildinfo
 vite.config.js
 vite.config.d.ts
+
+# Release binaries are distributed through GitHub Releases.
+artifacts/v*/

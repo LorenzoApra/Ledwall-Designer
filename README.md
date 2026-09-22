@@ -1,157 +1,144 @@
 # Ledwall Designer
 
-Applicazione desktop offline-first per progettare ledwall, cablaggi dati ed
-elettrici, verificare la capacita dei controller NovaStar e generare pixelmap e
-documentazione tecnica.
+**Offline LED wall design, cabling plans, pixel maps and technical reports.**
 
-## Stato
+Ledwall Designer is a desktop application for planning LED walls with NovaStar
+controllers. Build multi-screen layouts, check data-port capacity, arrange power
+lines and rigging accessories, and export documentation for your crew.
 
-Il progetto e in fase MVP. La piattaforma primaria e macOS; l'architettura
-Tauri 2 + React/TypeScript mantiene aperta la distribuzione Windows.
+**V1.0 / package version 1.0.0** · macOS Apple Silicon & Intel · Windows x64 · GPL-3.0-only
 
-## Sviluppo
+[Website & user guide](https://lorenzoapra.github.io/Ledwall-Designer/) ·
+[Releases & downloads](https://github.com/LorenzoApra/Ledwall-Designer/releases) ·
+[Report an issue](https://github.com/LorenzoApra/Ledwall-Designer/issues)
 
-Prerequisiti:
+> Release preparation: V1.0 packages and the website are being prepared. Until
+> publication, use the local preview and the documentation below. The application
+> interface is currently in Italian; the English guide includes the exact UI labels.
 
-- Node.js e pnpm
-- Rust stable
-- Xcode Command Line Tools su macOS
+## Download and install
 
-```bash
-pnpm install
+Get installers from **GitHub Releases**, not from the repository's historical
+`artifacts/` folder. Choose the package matching your computer:
+
+| Platform | Package | Requirements |
+| --- | --- | --- |
+| Mac Apple Silicon | `Ledwall-Designer-1.0.0-macos-arm64.dmg` | macOS 12 or later, Apple M-series chip |
+| Mac Intel | `Ledwall-Designer-1.0.0-macos-x64.dmg` | macOS 12 or later, Intel processor |
+| Windows | `Ledwall-Designer-1.0.0-windows-x64-setup.exe` | Windows 10/11 x64, Intel/AMD processor, WebView2 |
+
+These are the configured platform targets; see the release notes for validation
+status. Windows ARM and Linux packages are not part of V1.0.
+
+### macOS
+
+1. Check **Apple menu → About This Mac**: “Chip” identifies Apple Silicon;
+   “Processor: Intel” identifies an Intel Mac.
+2. Download and open the matching `.dmg`; drag **Ledwall Designer** to **Applications**.
+3. Eject the disk image and open the app from Applications.
+4. The app has an ad-hoc signature, but is **not Developer ID signed or notarized**.
+   If macOS blocks it, attempt to open it once, then go to **System Settings →
+   Privacy & Security → Open Anyway** and confirm. On macOS 12, use **System
+   Preferences → Security & Privacy → General**. Only approve the copy downloaded
+   from this repository. See [Apple's instructions](https://support.apple.com/en-us/102445).
+
+### Windows
+
+1. Download and run the x64 `-setup.exe` installer. Installation is per user.
+2. The installer is not signed with a commercial code-signing certificate.
+   Windows may show an unknown-publisher/SmartScreen prompt; when available,
+   choose **More info → Run anyway** after checking the download source.
+3. WebView2 is required. The installer downloads it if it is missing, so the first
+   installation may need Internet access. The installed app works offline.
+
+If your organization's policy blocks unsigned apps, ask your administrator.
+Do not disable system-wide protection to install the app.
+
+## Quick start
+
+1. **Progetto** (Project): enter the project/event name, revision and master canvas size.
+2. **Librerie** (Libraries): check your cabinet dimensions, pixel resolution,
+   weight and maximum/average power; select the appropriate controller model.
+3. **Disegno → Crea bulk** (Design → Create grid): choose a cabinet model and
+   grid dimensions. Use **+ Schermo** to add screens; position them on the master canvas.
+4. **Dati** (Data): configure the controller mode, assign ports automatically or
+   trace cables manually, and review capacity and backup-port assignments.
+5. **Elettrico** (Power) and **Peso** (Weight): plan power lines and add flybars,
+   support plates and accessory weights.
+6. **Salva** (Save): save a local `.lwd` project. In **Output**, export PNG pixel
+   maps, the technical PDF/bill of materials and A3 wiring PDFs.
+
+[Read the full user guide](docs/USER_GUIDE.md), including shortcuts, library imports,
+capacity calculations and troubleshooting.
+
+## Features
+
+- Multiple screens on one master canvas; cabinet grids and individual placement.
+- Multiple selection, undo/redo and cabinets excluded from the pixel map while
+  remaining in structural and weight calculations.
+- Automatic and manual data wiring, internal backup ports and spare-controller references.
+- MCTRL/VX port load calculated from the bounding pixel rectangle, including empty
+  areas; COEX/MX uses active pixel totals. Configurable controller operating modes.
+- Automatic and manual power lines with maximum and average loads.
+- Flybars, support plates, suspension points and estimated rigging loads.
+- Native-screen/master PNG pixel maps; technical and wiring PDF exports.
+- Cabinet, sending-card and accessory libraries; semicolon-separated CSV and
+  NovaStar `.rcfg`, `.rcfgx`, `.rfcg` configuration import.
+- Manual `.lwd` project saving and a save/discard/cancel prompt on desktop app close.
+
+Projects and calculations stay local. Library data is stored on the current
+computer; **Aggiorna dalla rete** explicitly fetches the public library from GitHub.
+The app includes an initial library so routine work does not require a connection.
+
+## Development
+
+Requires Node.js 24, pnpm 11.19.0, Rust stable and the
+[Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) for your OS.
+On macOS install Xcode Command Line Tools. On Windows install Microsoft C++ Build
+Tools (Desktop development with C++) and WebView2.
+
+```sh
+pnpm install --frozen-lockfile
 pnpm test
 pnpm tauri dev
 ```
 
-Build locale macOS:
+Build locally on macOS:
 
-```bash
-pnpm tauri build
+```sh
+rustup target add aarch64-apple-darwin x86_64-apple-darwin
+pnpm tauri build --target aarch64-apple-darwin --bundles dmg -- --locked
+pnpm tauri build --target x86_64-apple-darwin --bundles dmg -- --locked
 ```
 
-I dati e i calcoli sono locali. L'app non richiede un server e non richiede una
-connessione Internet per funzionare.
+Build on Windows:
 
-## Installazione macOS
+```sh
+pnpm tauri build --target x86_64-pc-windows-msvc --bundles nsis -- --locked
+```
 
-La build attuale e per Mac Apple Silicon (ARM64) e non e firmata con un
-certificato Apple Developer. Aprire il DMG, trascinare **Ledwall Designer** in
-Applicazioni e, al primo avvio, fare clic destro sull'app e scegliere **Apri**.
-Se macOS la blocca ancora, usare **Impostazioni di Sistema > Privacy e
-Sicurezza > Apri comunque**.
+[Release and website publishing instructions](docs/RELEASING.md).
+The GitHub workflow builds all three packages; tag builds create a **draft** release.
+Publishing the release and deploying the website remain explicit steps.
 
-Il progetto viene salvato manualmente nel formato locale `.lwd`. Librerie,
-calcoli, pixelmap e report continuano a funzionare senza connessione Internet.
-Il campo **Nome progetto / Evento** alimenta titolo, nomi dei file e
-intestazione della relazione tecnica.
+Preview the website:
 
-Se si chiude l'app con modifiche non salvate, viene richiesto se salvare il
-progetto, uscire senza salvare oppure annullare la chiusura. Se il salvataggio
-viene annullato o non riesce, l'app rimane aperta.
+```sh
+pnpm site:preview
+```
 
-## Cablaggio dati manuale
+Open `http://127.0.0.1:4174`. The website is plain HTML/CSS/JavaScript in `site/`.
 
-Nella vista **Dati**, selezionare il primo cabinet e scegliere la porta di
-partenza, oppure usare **+ Nuova porta** nella toolbar (`N`). La traccia si
-attiva automaticamente: tenere premuto sul cabinet e trascinare sugli altri
-nell'ordine fisico del cavo. `Invio`, `Esc`, doppio clic sul canvas o il pulsante
-**Termina** nella toolbar chiudono subito la traccia. **Annulla ultimo tratto** rimuove l'ultimo cabinet aggiunto, mentre
-**Rimuovi cabinet dalla porta** scollega il cabinet selezionato.
+## Support and license
 
-Nel riquadro **Porte e backup** è possibile assegnare automaticamente le porte
-libere oppure scegliere manualmente, per ogni main, la porta di backup interna
-e il riferimento a porta/controller di riserva. Il PDF cablaggi riporta la
-tabella completa; i percorsi usano linee ad alto contrasto e frecce maggiorate.
+[Open a GitHub issue](https://github.com/LorenzoApra/Ledwall-Designer/issues) with
+app version, operating system, processor type, reproduction steps and, if possible,
+a small sample project without private event/client information.
 
-Per i controller delle serie **MCTRL** e **VX**, il carico di ogni porta segue
-la regola NovaLCT/SmartLCT: viene calcolato sul rettangolo in pixel che racchiude
-tutti i cabinet assegnati alla porta. Gli spazi vuoti di forme a L o irregolari
-sono quindi conteggiati come *tail virtuali*. Il pannello mostra separatamente
-pixel reali, pixel virtuali e dimensioni del rettangolo; il cablaggio automatico
-divide la forma su più porte quando il rettangolo supera la capacità disponibile.
-Le serie COEX/MX continuano invece a usare la somma dei soli pixel reali.
+Copyright (C) 2026 Lorenzo Apra. Licensed under the **GNU General Public License,
+version 3 only**. See [LICENSE](LICENSE). Distributed without warranty.
+Third-party dependencies retain their respective licenses.
 
-Nella vista **Elettrico**, selezionare il primo cabinet e usare **+ Nuova linea**
-nella toolbar (`N`), oppure scegliere una linea esistente. Trascinare sui cabinet nell'ordine fisico del
-cavo; ogni linea mostra soltanto numero di cabinet, assorbimento massimo e
-assorbimento medio in W o kW. Sono disponibili anche annullamento dell'ultimo tratto e rimozione del
-cabinet dalla linea.
-
-Un cabinet selezionato può essere eliminato dal pulsante sopra il canvas,
-dal pannello **Disegno** oppure con `Canc`/`Backspace`. L'operazione rimuove
-anche i relativi riferimenti da dati, elettrico e sospensioni; il comando
-**Annulla** consente di ripristinarlo.
-
-## Selezione multipla e cabinet strutturali
-
-Usare `Cmd`/`Ctrl` durante il clic per aggiungere o rimuovere un cabinet;
-`Shift` + clic seleziona l'intera riga e `Cmd+A`/`Ctrl+A` seleziona tutti i
-cabinet del canvas. I cabinet selezionati possono essere eliminati insieme oppure
-assegnati in blocco a una porta dati o a una linea elettrica. Dal pannello
-**Disegno** è inoltre possibile escluderli dalla pixelmap: restano presenti nel
-progetto, nel peso e nella struttura, ma non vengono disegnati nell'output PNG
-e vengono ignorati dai cablaggi automatici dati ed elettrici.
-
-## Accessori di sostegno
-
-Nel pannello **Peso**, la sezione **Accessori** può generare automaticamente una
-piastra in ogni giunto interno 2×2 entro una soglia espressa in metri, oppure
-aggiungerla manualmente. Il calcolo usa la geometria dei cabinet ed è disponibile
-per tutti i produttori e modelli. Sono previste piastre semplici e piastre con
-aliscaf per il collegamento a una truss; piastre e flybar si posizionano
-trascinandole direttamente sul disegno.
-
-Sul canvas la rotella del mouse regola lo zoom mantenendo come riferimento la
-zona sotto il puntatore.
-
-## Importazione RCFG / RCFGX
-
-La libreria cabinet può importare configurazioni NovaStar `.rcfg`, `.rcfgx` e
-`.rfcg`: vengono letti risoluzione cabinet, dimensioni modulo in pixel, scan e
-receiving card. Misure fisiche, pitch, peso e consumi rimangono modificabili e
-devono essere verificati, perché non sono dati affidabili nel formato NovaStar.
-La vista cabinet può essere filtrata per produttore.
-
-## Libreria CSV condivisa
-
-La schermata **Librerie** è organizzata in tre aree: **Cabinet**, **Sending
-Card** e **Accessori**. In Accessori sono raccolte sia le flybar sia le piastre
-e gli altri componenti di rigging. I cabinet espongono soltanto assorbimento
-massimo e medio.
-
-La libreria iniziale viene caricata da
-`src/data/ledwall-library.csv`, un CSV con separatore `;` modificabile anche in
-Excel. L'app conserva una copia locale e continua a funzionare completamente
-offline. L'indirizzo del CSV pubblico è configurato internamente e non viene
-mostrato nell'interfaccia: **Aggiorna dalla rete** usa sempre la sorgente
-ufficiale. All'avvio, gli elementi nuovi inclusi nel CSV dell'app vengono aggiunti alla copia locale
-senza sovrascrivere le modifiche manuali già presenti. **Aggiorna dalla rete**
-scarica senza cache e valida esplicitamente una nuova copia, mostrando data e
-quantità degli elementi ricevuti, e non modifica la libreria locale in caso di
-errore. È disponibile anche l'importazione di un CSV locale. Le modifiche
-manuali e l'importazione RCFG/RCFGX rimangono disponibili.
-
-## Flybar, accessori e report
-
-Flybar, piastre e altri accessori sono raccolti per produttore e completamente
-modificabili. Nel pannello **Peso** si possono applicare manualmente le flybar
-alle colonne selezionate, sia in sospensione sia in appoggio; l'app mostra per
-ogni elemento peso cabinet, cavi/accessori, piastre, carico supportato, portata e
-percentuale di utilizzo. Le schede delle singole piastre e flybar sono chiuse di
-default ed espandibili quando servono. La portata iniziale del beam MG7S è 200 kg, mentre il
-peso proprio resta a zero finché non viene inserito un valore verificato.
-
-La relazione tecnica include una tavola rigging per ogni schermo con piastre e
-flybar evidenziate e il peso totale per ogni flybar. Il riepilogo usa
-assorbimenti in kW, cabinet per porta e cabinet per linea. Il PDF cablaggi usa
-pagine distinte per dati ed elettrico. Progetto `.lwd`, PDF e PNG includono nel
-nome il numero di revisione del progetto.
-
-## Fonti tecniche
-
-Le capacita dei controller precaricati derivano dalla documentazione ufficiale
-NovaStar. Ogni modello conserva un riferimento alla fonte e i valori rimangono
-modificabili dall'utente.
-
-Il modello cabinet iniziale e Yestech MG7S 3.9 Outdoor, ricavato dalla scheda
-tecnica fornita e dai valori operativi indicati dall'utente.
+NovaStar is a trademark of its owner; this project is not affiliated with or
+endorsed by NovaStar. Equipment-library entries include source references where
+available and remain editable.

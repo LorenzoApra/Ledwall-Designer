@@ -1,0 +1,20 @@
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+
+const read = path => readFile(path, 'utf8');
+const pkg = JSON.parse(await read('package.json'));
+const tauri = JSON.parse(await read('src-tauri/tauri.conf.json'));
+const cargo = await read('src-tauri/Cargo.toml');
+const lock = await read('src-tauri/Cargo.lock');
+assert.equal(pkg.version, '1.0.0');
+assert.equal(tauri.version, pkg.version);
+assert(cargo.includes(`version = "${pkg.version}"`));
+assert(lock.includes(`name = "ledwall-designer"\nversion = "${pkg.version}"`));
+assert.equal(pkg.license, 'GPL-3.0-only');
+assert.equal(tauri.bundle.license, pkg.license);
+assert((await read('LICENSE')).includes('GNU GENERAL PUBLIC LICENSE'));
+const manifest = JSON.parse(await read('site/release.json'));
+assert.equal(manifest.version, pkg.version);
+assert.deepEqual(Object.keys(manifest.assets).sort(), ['macos-arm64', 'macos-x64', 'windows-x64']);
+for (const file of Object.values(manifest.assets)) assert(file.startsWith(`Ledwall-Designer-${pkg.version}-`));
+console.log(`Release metadata consistent: v${pkg.version}, ${pkg.license}, three platform packages.`);
