@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { numberLocale, readLanguage } from "../i18n";
 import { calculateControllerCapacity, calculatePortMetrics } from "../domain/capacity";
 import { calculatePowerLineMetrics } from "../domain/electrical";
 import { cabinetPhysicalSize, cabinetPixelSize, calculateScreenPixelBounds } from "../domain/geometry";
@@ -322,7 +323,7 @@ function DataPanel(props: InspectorProps) {
               portRuns: assignAutomaticBackupPorts(
                 item.portRuns,
                 model.ethernetPorts,
-                `Secondo ${model.name}`,
+                `${readLanguage() === "en" ? "Second" : "Secondo"} ${model.name}`,
               ),
             }
           : item,
@@ -474,7 +475,7 @@ function DataPanel(props: InspectorProps) {
                 <Field label="Backup secondo controller">
                   <input
                     value={metric.run.backupControllerName ?? ""}
-                    placeholder={`Controller B: porta ${metric.run.portNumber}`}
+                    placeholder={`Controller B: ${readLanguage() === "en" ? "port" : "porta"} ${metric.run.portNumber}`}
                     onChange={(event) => updatePortRun(metric.run.id, {
                       backupControllerName: event.target.value || undefined,
                     })}
@@ -1041,7 +1042,7 @@ function LibraryPanel(props: InspectorProps) {
             flybars: libraries.flybars.length,
             accessories: libraries.accessories.length,
           })}
-          {remoteUpdatedAt ? ` · ultimo aggiornamento ${new Date(remoteUpdatedAt).toLocaleString("it-IT")}` : ""}
+          {remoteUpdatedAt ? ` · ultimo aggiornamento ${new Date(remoteUpdatedAt).toLocaleString(numberLocale())}` : ""}
         </div>
         <Field label="Importa CSV locale" hint="Puoi usare lo stesso file scaricato da GitHub o modificato con Excel.">
           <input type="file" accept=".csv,text/csv" onChange={(event) => {
@@ -1185,12 +1186,12 @@ function panelEyebrow(panel: InspectorPanel): string {
 }
 
 function formatInt(value: number): string {
-  return new Intl.NumberFormat("it-IT", { maximumFractionDigits: 0 }).format(value);
+  return new Intl.NumberFormat(numberLocale(), { maximumFractionDigits: 0 }).format(value);
 }
 
 function formatPower(valueW: number): string {
   return valueW >= 1000
-    ? `${new Intl.NumberFormat("it-IT", { maximumFractionDigits: 2 }).format(valueW / 1000)} kW`
+    ? `${new Intl.NumberFormat(numberLocale(), { maximumFractionDigits: 2 }).format(valueW / 1000)} kW`
     : `${formatInt(valueW)} W`;
 }
 

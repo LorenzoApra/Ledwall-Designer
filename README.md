@@ -6,15 +6,15 @@ Ledwall Designer is a desktop application for planning LED walls with NovaStar
 controllers. Build multi-screen layouts, check data-port capacity, arrange power
 lines and rigging accessories, and export documentation for your crew.
 
-**V1.0 / package version 1.0.0** · macOS Apple Silicon & Intel · Windows x64 · GPL-3.0-only
+**V1.0 series** · macOS Apple Silicon & Intel · Windows x64 · GPL-3.0-only
 
 [Website & user guide](https://lorenzoapra.github.io/Ledwall-Designer/) ·
 [Releases & downloads](https://github.com/LorenzoApra/Ledwall-Designer/releases) ·
 [Report an issue](https://github.com/LorenzoApra/Ledwall-Designer/issues)
 
 > Release preparation: V1.0 packages and the website are being prepared. Until
-> publication, use the local preview and the documentation below. The application
-> interface is currently in Italian; the English guide includes the exact UI labels.
+> publication, use the local preview and the documentation below. The interface
+> can be switched between Italian and English from the language menu in the top bar.
 
 ## Download and install
 
@@ -55,6 +55,9 @@ If your organization's policy blocks unsigned apps, ask your administrator.
 Do not disable system-wide protection to install the app.
 
 ## Quick start
+
+Use the **Language** menu in the top bar to switch between **Italiano** and
+**English**. The choice is saved locally and also applies to exported PDFs.
 
 1. **Progetto** (Project): enter the project/event name, revision and master canvas size.
 2. **Librerie** (Libraries): check your cabinet dimensions, pixel resolution,

@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import type { LedwallProject } from "../domain/types";
+import { readLanguage, translateText } from "../i18n";
 
 export interface SavedFile {
   path: string;
@@ -20,9 +21,9 @@ export async function saveProjectFile(
     const path =
       (existingPath ? replaceFilename(existingPath, defaultName) : undefined) ??
       (await save({
-        title: "Salva progetto Ledwall Designer",
+        title: readLanguage() === "en" ? "Save Ledwall Designer project" : "Salva progetto Ledwall Designer",
         defaultPath: defaultName,
-        filters: [{ name: "Progetto Ledwall Designer", extensions: ["lwd"] }],
+        filters: [{ name: readLanguage() === "en" ? "Ledwall Designer project" : "Progetto Ledwall Designer", extensions: ["lwd"] }],
       }));
     if (!path) return null;
     await invoke("write_text_file", { path, contents });
@@ -39,10 +40,10 @@ export async function saveProjectFile(
 export async function openProjectFile(): Promise<{ project: LedwallProject; path?: string } | null> {
   if (isTauriRuntime()) {
     const path = await open({
-      title: "Apri progetto Ledwall Designer",
+      title: readLanguage() === "en" ? "Open Ledwall Designer project" : "Apri progetto Ledwall Designer",
       multiple: false,
       directory: false,
-      filters: [{ name: "Progetto Ledwall Designer", extensions: ["lwd", "json"] }],
+      filters: [{ name: readLanguage() === "en" ? "Ledwall Designer project" : "Progetto Ledwall Designer", extensions: ["lwd", "json"] }],
     });
     if (!path || Array.isArray(path)) return null;
     const contents = await invoke<string>("read_text_file", { path });
@@ -63,9 +64,9 @@ export async function saveBinary(
 ): Promise<string | null> {
   if (isTauriRuntime()) {
     const path = await save({
-      title,
+      title: translateText(title, readLanguage()),
       defaultPath: suggestedName,
-      filters: [{ name: title, extensions }],
+      filters: [{ name: translateText(title, readLanguage()), extensions }],
     });
     if (!path) return null;
     await invoke("write_binary_file", { path, contents: Array.from(bytes) });

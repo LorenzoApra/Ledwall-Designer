@@ -7,12 +7,15 @@ import { calculateFlybarMetrics } from "../domain/flybars";
 import type { AppLibraries, LedwallProject } from "../domain/types";
 import { renderWiringCanvas } from "./wiringCanvas";
 import { renderRiggingCanvas } from "./riggingCanvas";
+import { numberLocale, translateText, type AppLanguage } from "../i18n";
 
 export function createTechnicalPdf(
   project: LedwallProject,
   libraries: AppLibraries,
+  language: AppLanguage = "it",
 ): Uint8Array {
   const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+  localizePdf(pdf, language);
   const totals = calculateProjectTotals(project, libraries);
   const powerMetrics = calculatePowerLineMetrics(project, libraries);
   let y = drawHeader(pdf, project, "RELAZIONE TECNICA", false);
@@ -143,7 +146,7 @@ export function createTechnicalPdf(
     if (!screenCabinets.length) return;
     pdf.addPage("a4", "landscape");
     drawHeader(pdf, project, `RIGGING - ${screen.name}`, false);
-    const canvas = renderRiggingCanvas(project, libraries, screen);
+    const canvas = renderRiggingCanvas(project, libraries, screen, language);
     const maxWidth = 269;
     const maxHeight = 135;
     const ratio = Math.min(maxWidth / canvas.width, maxHeight / canvas.height);
@@ -182,8 +185,10 @@ export function createTechnicalPdf(
 export function createWiringPdf(
   project: LedwallProject,
   libraries: AppLibraries,
+  language: AppLanguage = "it",
 ): Uint8Array {
   const pdf = new jsPDF({ orientation: "landscape", unit: "mm", format: "a3" });
+  localizePdf(pdf, language);
   let pageIndex = 0;
   project.screens.forEach((screen) => {
     const screenCabinets = project.cabinets.filter((cabinet) => cabinet.screenId === screen.id);
@@ -196,7 +201,7 @@ export function createWiringPdf(
         pdf.text("Nessun cabinet nello schermo.", 18, 40);
         return;
       }
-      const canvas = renderWiringCanvas(project, libraries, screen, mode);
+      const canvas = renderWiringCanvas(project, libraries, screen, mode, language);
       const maxWidth = 388;
       const maxHeight = 245;
       const ratio = Math.min(maxWidth / canvas.width, maxHeight / canvas.height);
@@ -209,6 +214,18 @@ export function createWiringPdf(
   });
   addPageNumbers(pdf);
   return new Uint8Array(pdf.output("arraybuffer"));
+}
+
+function localizePdf(pdf: jsPDF, language: AppLanguage): void {
+  if (language === "it") return;
+  const original = pdf.text.bind(pdf) as (...args: unknown[]) => jsPDF;
+  pdf.text = ((content: string | string[], ...args: unknown[]) =>
+    original(
+      Array.isArray(content)
+        ? content.map((line) => translateText(line, language))
+        : translateText(content, language),
+      ...args,
+    )) as typeof pdf.text;
 }
 
 function drawPowerTable(
@@ -339,9 +356,9 @@ function addPageNumbers(pdf: jsPDF): void {
 }
 
 function formatInt(value: number): string {
-  return new Intl.NumberFormat("it-IT", { maximumFractionDigits: 0 }).format(value);
+  return new Intl.NumberFormat(numberLocale(), { maximumFractionDigits: 0 }).format(value);
 }
 
 function formatDecimal(value: number): string {
-  return new Intl.NumberFormat("it-IT", { maximumFractionDigits: 1 }).format(value);
+  return new Intl.NumberFormat(numberLocale(), { maximumFractionDigits: 1 }).format(value);
 }

@@ -1,11 +1,13 @@
 import { calculateScreenPixelBounds, cabinetPixelCenter, cabinetPixelSize } from "../domain/geometry";
 import type { AppLibraries, LedScreen, LedwallProject } from "../domain/types";
+import type { AppLanguage } from "../i18n";
 
 export function renderWiringCanvas(
   project: LedwallProject,
   libraries: AppLibraries,
   screen: LedScreen,
   mode: "data" | "power",
+  language: AppLanguage = "it",
 ): HTMLCanvasElement {
   const bounds = calculateScreenPixelBounds(screen, project.cabinets, libraries.cabinets);
   if (bounds.width <= 0 || bounds.height <= 0) {
@@ -68,7 +70,7 @@ export function renderWiringCanvas(
           `${cabinet.row},${cabinet.column}`,
           `${model.powerMaxW}W max`,
         ]
-      : [`${cabinet.row},${cabinet.column}`, "NON ASSEGNATO"];
+      : [`${cabinet.row},${cabinet.column}`, language === "en" ? "UNASSIGNED" : "NON ASSEGNATO"];
     lines.forEach((line, index) => context.fillText(line, x + 4, y + 3 + index * Math.max(11, 10 * scale)));
   }
 
@@ -105,9 +107,9 @@ export function renderWiringCanvas(
 
   context.fillStyle = "#121a22";
   context.font = "700 22px Arial, sans-serif";
-  context.fillText(`${mode === "data" ? controller?.name ?? "Controller" : "Distribuzione elettrica"} - ${screen.name}`, margin, canvas.height - footer + 18);
+  context.fillText(`${mode === "data" ? controller?.name ?? "Controller" : language === "en" ? "Power distribution" : "Distribuzione elettrica"} - ${screen.name}`, margin, canvas.height - footer + 18);
   context.font = "13px Arial, sans-serif";
-  context.fillText(`Front View - ${mode === "data" ? "percorso main dati" : "linee elettriche"}`, margin, canvas.height - footer + 48);
+  context.fillText(`Front View - ${mode === "data" ? language === "en" ? "main data route" : "percorso main dati" : language === "en" ? "power lines" : "linee elettriche"}`, margin, canvas.height - footer + 48);
   return canvas;
 }
 

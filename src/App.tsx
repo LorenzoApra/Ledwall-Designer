@@ -43,6 +43,7 @@ import {
 } from "./platform/files";
 import { useHistoryProject } from "./state/useHistoryProject";
 import { useLibraries } from "./state/useLibraries";
+import { numberLocale, observeTranslations, readLanguage, saveLanguage, type AppLanguage } from "./i18n";
 
 const PANELS: { id: InspectorPanel; label: string; icon: string }[] = [
   { id: "project", label: "Progetto", icon: "PR" },
@@ -71,12 +72,20 @@ export default function App() {
   const [savedProject, setSavedProject] = useState(history.project);
   const [status, setStatus] = useState("Pronto");
   const [busy, setBusy] = useState(false);
+  const [language, setLanguage] = useState<AppLanguage>(readLanguage);
+  const appShell = useRef<HTMLDivElement>(null);
   const closeDialogOpen = useRef(false);
   const project = history.project;
   const hasUnsavedChanges = project !== savedProject;
   const viewMode: ViewMode =
     panel === "data" ? "data" : panel === "power" ? "power" : panel === "weight" ? "weight" : panel === "pixelmap" ? "pixelmap" : "design";
   const selectedScreen = project.screens.find((screen) => screen.id === selectedScreenId) ?? project.screens[0];
+
+  useEffect(() => {
+    document.documentElement.lang = language;
+    saveLanguage(language);
+    return appShell.current ? observeTranslations(appShell.current, language) : undefined;
+  }, [language]);
 
   const projectStats = useMemo(() => {
     const totalPixels = project.cabinets.reduce((sum, cabinet) => {
@@ -154,21 +163,23 @@ export default function App() {
       closeDialogOpen.current = true;
       try {
         const choice = await message(
-          "Il progetto contiene modifiche non salvate. Vuoi salvarle prima di uscire?",
+          language === "en"
+            ? "The project has unsaved changes. Save before quitting?"
+            : "Il progetto contiene modifiche non salvate. Vuoi salvarle prima di uscire?",
           {
-            title: "Salvare il progetto?",
+            title: language === "en" ? "Save project?" : "Salvare il progetto?",
             kind: "warning",
             buttons: {
-              yes: "Salva",
-              no: "Non salvare",
-              cancel: "Annulla",
+              yes: language === "en" ? "Save" : "Salva",
+              no: language === "en" ? "Don't save" : "Non salvare",
+              cancel: language === "en" ? "Cancel" : "Annulla",
             },
           },
         );
-        if (choice === "Salva") {
+        if (choice === (language === "en" ? "Save" : "Salva")) {
           const saved = await handleSave(false);
           if (saved) await getCurrentWindow().destroy();
-        } else if (choice === "Non salvare") {
+        } else if (choice === (language === "en" ? "Don't save" : "Non salvare")) {
           await getCurrentWindow().destroy();
         }
       } finally {
@@ -182,7 +193,7 @@ export default function App() {
       disposed = true;
       unlisten?.();
     };
-  }, [hasUnsavedChanges, project, filePath]);
+  }, [hasUnsavedChanges, project, filePath, language]);
 
   async function handleSave(saveAs: boolean): Promise<boolean> {
     try {
@@ -245,7 +256,7 @@ export default function App() {
         ...current.screens,
         {
           id,
-          name: `SCHERMO ${current.screens.length + 1}`,
+          name: `${language === "en" ? "SCREEN" : "SCHERMO"} ${current.screens.length + 1}`,
           canvasX: 0,
           canvasY: 0,
           cabinetIds: [],
@@ -505,7 +516,7 @@ export default function App() {
     const used = new Set(runs.map((run) => run.portNumber));
     const backupPorts = Array.from({ length: controllerModel.ethernetPorts }, (_, index) => controllerModel.ethernetPorts - index).filter((port) => !used.has(port));
     const configuredRuns = controller.mode.redundancy
-      ? assignAutomaticBackupPorts(runs, controllerModel.ethernetPorts, `Secondo ${controllerModel.name}`)
+      ? assignAutomaticBackupPorts(runs, controllerModel.ethernetPorts, `${language === "en" ? "Second" : "Secondo"} ${controllerModel.name}`)
       : runs;
     const totalPixels = projectStats.activePixels;
     const capacity = calculateControllerCapacity(controllerModel, controller);
@@ -897,10 +908,14 @@ export default function App() {
     try {
       setBusy(true);
       const { createTechnicalPdf, createWiringPdf } = await import("./export/reports");
-      const bytes = kind === "technical" ? createTechnicalPdf(project, libraries) : createWiringPdf(project, libraries);
-      const suffix = kind === "technical" ? "Relazione tecnica" : "Cablaggi";
+      const bytes = kind === "technical"
+        ? createTechnicalPdf(project, libraries, language)
+        : createWiringPdf(project, libraries, language);
+      const suffix = kind === "technical"
+        ? language === "en" ? "Technical report" : "Relazione tecnica"
+        : language === "en" ? "Wiring" : "Cablaggi";
       const name = versionedFilename(project, suffix, "pdf");
-      const path = await saveBinary(bytes, name, `Esporta ${suffix}`, ["pdf"], "application/pdf");
+      const path = await saveBinary(bytes, name, `${language === "en" ? "Export" : "Esporta"} ${suffix}`, ["pdf"], "application/pdf");
       if (path) setStatus(`PDF esportato: ${path.split("/").at(-1)}`);
     } catch (error) {
       setStatus(errorMessage(error));
@@ -910,7 +925,7 @@ export default function App() {
   }
 
   return (
-    <div className="app-shell">
+    <div className="app-shell" key={language} ref={appShell}>
       <header className="topbar">
         <div className="brand">
           <div className="brand-mark"><span /><span /><span /></div>
@@ -926,9 +941,20 @@ export default function App() {
           <strong>{project.metadata.projectName}</strong>
           <span>{filePath ? filePath.split("/").at(-1) : "Non salvato"}</span>
         </div>
+        <label className="language-menu">
+          <span>{language === "it" ? "Lingua" : "Language"}</span>
+          <select aria-label={language === "it" ? "Lingua" : "Language"} value={language} onChange={(event) => {
+            const next = event.target.value as AppLanguage;
+            saveLanguage(next);
+            setLanguage(next);
+          }}>
+            <option value="it">Italiano</option>
+            <option value="en">English</option>
+          </select>
+        </label>
         <div className="history-actions">
-          <button className="icon-button" disabled={!history.canUndo} onClick={history.undo} title="Annulla">↶</button>
-          <button className="icon-button" disabled={!history.canRedo} onClick={history.redo} title="Ripristina">↷</button>
+          <button className="icon-button" disabled={!history.canUndo} onClick={history.undo} title={language === "en" ? "Undo" : "Annulla"}>↶</button>
+          <button className="icon-button" disabled={!history.canRedo} onClick={history.redo} title={language === "en" ? "Redo" : "Ripristina"}>↷</button>
         </div>
       </header>
 
@@ -1051,7 +1077,7 @@ function panelLabel(panel: InspectorPanel): string {
 }
 
 function formatInt(value: number): string {
-  return new Intl.NumberFormat("it-IT", { maximumFractionDigits: 0 }).format(value);
+  return new Intl.NumberFormat(numberLocale(), { maximumFractionDigits: 0 }).format(value);
 }
 
 function errorMessage(error: unknown): string {

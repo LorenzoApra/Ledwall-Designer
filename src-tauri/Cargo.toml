@@ -1,6 +1,6 @@
 [package]
 name = "ledwall-designer"
-version = "1.0.0"
+version = "1.0.1"
 description = "Offline LED wall design and technical documentation"
 license = "GPL-3.0-only"
 repository = "https://github.com/LorenzoApra/Ledwall-Designer"

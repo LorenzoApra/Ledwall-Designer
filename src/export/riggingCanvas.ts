@@ -1,11 +1,13 @@
 import { calculateFlybarMetrics } from "../domain/flybars";
 import { cabinetPhysicalSize } from "../domain/geometry";
 import type { AppLibraries, LedScreen, LedwallProject } from "../domain/types";
+import type { AppLanguage } from "../i18n";
 
 export function renderRiggingCanvas(
   project: LedwallProject,
   libraries: AppLibraries,
   screen: LedScreen,
+  language: AppLanguage = "it",
 ): HTMLCanvasElement {
   const modelById = new Map(libraries.cabinets.map((model) => [model.id, model]));
   const items = project.cabinets
@@ -88,6 +90,6 @@ export function renderRiggingCanvas(
   context.font = "700 22px Arial, sans-serif";
   context.fillText(`RIGGING - ${screen.name}`, margin, canvas.height - footer + 25);
   context.font = "13px Arial, sans-serif";
-  context.fillText("Front View - piastre e flybar evidenziate", margin, canvas.height - footer + 52);
+  context.fillText(language === "en" ? "Front View - plates and flybars highlighted" : "Front View - piastre e flybar evidenziate", margin, canvas.height - footer + 52);
   return canvas;
 }

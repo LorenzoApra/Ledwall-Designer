@@ -1,4 +1,5 @@
 import { createId } from "../domain/id";
+import { readLanguage } from "../i18n";
 import type { LedwallProject, PixelmapOptions } from "../domain/types";
 
 export const DEFAULT_PIXELMAP_OPTIONS: PixelmapOptions = {
@@ -14,6 +15,7 @@ export const DEFAULT_PIXELMAP_OPTIONS: PixelmapOptions = {
 };
 
 export function createDefaultProject(): LedwallProject {
+  const english = readLanguage() === "en";
   const projectId = createId("project");
   const screenId = createId("screen");
   const controllerId = createId("controller");
@@ -23,7 +25,7 @@ export function createDefaultProject(): LedwallProject {
     schemaVersion: 1,
     id: projectId,
     metadata: {
-      projectName: "Nuovo progetto",
+      projectName: english ? "New project" : "Nuovo progetto",
       company: "",
       client: "",
       event: "",
@@ -37,7 +39,7 @@ export function createDefaultProject(): LedwallProject {
     screens: [
       {
         id: screenId,
-        name: "SCHERMO 1",
+        name: english ? "SCREEN 1" : "SCHERMO 1",
         canvasX: 0,
         canvasY: 0,
         cabinetIds: [],

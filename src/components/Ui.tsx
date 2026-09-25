@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { readLanguage } from "../i18n";
 
 export function Field({
   label,
@@ -88,10 +89,11 @@ export function DecimalInput({
 }) {
   const [draft, setDraft] = useState(formatDecimal(value));
   const focused = useRef(false);
+  const language = readLanguage();
 
   useEffect(() => {
     if (!focused.current) setDraft(formatDecimal(value));
-  }, [value]);
+  }, [value, language]);
 
   function commit(): void {
     focused.current = false;
@@ -124,5 +126,5 @@ export function DecimalInput({
 }
 
 function formatDecimal(value: number): string {
-  return String(value).replace(".", ",");
+  return readLanguage() === "en" ? String(value) : String(value).replace(".", ",");
 }
