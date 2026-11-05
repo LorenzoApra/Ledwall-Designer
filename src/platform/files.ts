@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import type { LedwallProject } from "../domain/types";
 import { readLanguage, translateText } from "../i18n";
+import { normalizeProjectCanvases } from "../domain/canvases";
 
 export interface SavedFile {
   path: string;
@@ -109,15 +110,19 @@ function replaceFilename(path: string, filename: string): string {
   return separatorIndex >= 0 ? `${path.slice(0, separatorIndex + 1)}${filename}` : filename;
 }
 
-function parseProject(contents: string): LedwallProject {
+export function parseProject(contents: string): LedwallProject {
   const project = JSON.parse(contents) as Partial<LedwallProject>;
   if (
-    project.schemaVersion !== 1 ||
+    (project.schemaVersion !== 1 && project.schemaVersion !== 2) ||
     !Array.isArray(project.screens) ||
     !Array.isArray(project.cabinets) ||
     !Array.isArray(project.controllers)
   ) {
     throw new Error("Il file non e un progetto Ledwall Designer supportato.");
+  }
+  if (project.schemaVersion === 2 && (!Array.isArray(project.canvases) || !project.canvases.length ||
+    project.canvases.some((canvas) => !canvas.id || !Number.isFinite(canvas.width) || canvas.width < 1 || !Number.isFinite(canvas.height) || canvas.height < 1))) {
+    throw new Error("Il file contiene canvas non validi.");
   }
   const normalized = project as LedwallProject;
   normalized.cabinets = normalized.cabinets.map((cabinet) => ({
@@ -140,7 +145,7 @@ function parseProject(contents: string): LedwallProject {
     plateRequirementHeightMm:
       normalized.rigging?.plateRequirementHeightMm ?? 4000,
   };
-  return normalized;
+  return normalizeProjectCanvases(normalized);
 }
 
 function downloadBlob(blob: Blob, filename: string): void {

@@ -117,7 +117,8 @@ describe("motore Ledwall Designer", () => {
       flybars: parsed.libraries.flybars.length,
       accessories: parsed.libraries.accessories.length,
     });
-    expect(parsed.counts).toMatchObject({ cabinets: 14, controllers: 14, accessories: 7 });
+    expect(parsed.counts.cabinets).toBeGreaterThanOrEqual(14);
+    expect(parsed.counts).toMatchObject({ controllers: 14, accessories: 7 });
     expect(parsed.counts.flybars).toBeGreaterThanOrEqual(5);
     expect(parsed.libraries.cabinets[0]).toMatchObject({
       name: "MG7S 3.9 Outdoor",

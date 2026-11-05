@@ -1,5 +1,6 @@
 import { createId } from "../domain/id";
 import { readLanguage } from "../i18n";
+import { normalizeProjectCanvases } from "../domain/canvases";
 import type { LedwallProject, PixelmapOptions } from "../domain/types";
 
 export const DEFAULT_PIXELMAP_OPTIONS: PixelmapOptions = {
@@ -21,7 +22,7 @@ export function createDefaultProject(): LedwallProject {
   const controllerId = createId("controller");
   const today = new Date().toISOString().slice(0, 10);
 
-  return {
+  return normalizeProjectCanvases({
     schemaVersion: 1,
     id: projectId,
     metadata: {
@@ -47,6 +48,8 @@ export function createDefaultProject(): LedwallProject {
         suspensionPoints: [],
         supportPlates: [],
         flybars: [],
+        dataPattern: "columns-tl",
+        powerPattern: "rows-tl",
       },
     ],
     cabinets: [],
@@ -82,5 +85,5 @@ export function createDefaultProject(): LedwallProject {
       plateRequirementHeightMm: 4000,
     },
     updatedAt: new Date().toISOString(),
-  };
+  });
 }

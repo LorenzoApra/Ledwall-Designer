@@ -1,10 +1,12 @@
 import { createId } from "./id";
 import { portColor } from "./wiring";
+import { orderCabinetsByPattern } from "./cablingPatterns";
 import type {
   AppLibraries,
   CabinetInstance,
   ElectricalSettings,
   LedwallProject,
+  LedScreen,
   PowerLine,
   PowerLineMetrics,
 } from "./types";
@@ -13,31 +15,35 @@ export function createAutomaticPowerLines(
   cabinets: CabinetInstance[],
   libraries: AppLibraries,
   settings: ElectricalSettings,
+  screens: Pick<LedScreen, "id" | "powerPattern">[] = [],
 ): PowerLine[] {
   const modelById = new Map(libraries.cabinets.map((model) => [model.id, model]));
-  const ordered = cabinets.filter((cabinet) => !cabinet.excludeFromPixelmap).sort(
-    (a, b) => a.screenId.localeCompare(b.screenId) || a.row - b.row || a.column - b.column,
-  );
+  const screenIds = [...new Set([...screens.map((screen) => screen.id), ...cabinets.map((cabinet) => cabinet.screenId)])];
   const lineLimitW = settings.voltageV * settings.breakerA * (settings.utilizationPercent / 100);
   const lines: PowerLine[] = [];
-  let current: PowerLine | undefined;
-  let currentW = 0;
-
-  for (const cabinet of ordered) {
-    const model = modelById.get(cabinet.modelId);
-    if (!model) continue;
-    if (!current || (current.cabinetIds.length > 0 && currentW + model.powerMaxW > lineLimitW)) {
-      current = {
-        id: createId("power-line"),
-        lineNumber: lines.length + 1,
-        cabinetIds: [],
-        color: portColor(lines.length),
-      };
-      lines.push(current);
-      currentW = 0;
+  for (const screenId of screenIds) {
+    const pattern = screens.find((screen) => screen.id === screenId)?.powerPattern ?? "rows-tl";
+    const ordered = orderCabinetsByPattern(cabinets.filter((cabinet) =>
+      cabinet.screenId === screenId && !cabinet.excludeFromPixelmap,
+    ), pattern);
+    let current: PowerLine | undefined;
+    let currentW = 0;
+    for (const cabinet of ordered) {
+      const model = modelById.get(cabinet.modelId);
+      if (!model) continue;
+      if (!current || (current.cabinetIds.length > 0 && currentW + model.powerMaxW > lineLimitW)) {
+        current = {
+          id: createId("power-line"),
+          lineNumber: lines.length + 1,
+          cabinetIds: [],
+          color: portColor(lines.length),
+        };
+        lines.push(current);
+        currentW = 0;
+      }
+      current.cabinetIds.push(cabinet.id);
+      currentW += model.powerMaxW;
     }
-    current.cabinetIds.push(cabinet.id);
-    currentW += model.powerMaxW;
   }
 
   return lines;

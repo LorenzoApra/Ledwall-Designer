@@ -19,12 +19,14 @@ interface CanvasEditorProps {
   viewMode: ViewMode;
   zoom: number;
   selectedScreenId?: string;
+  isolatedScreen: boolean;
   selectedCabinetId?: string;
   selectedCabinetIds: string[];
   manualTracePort?: number;
   manualPowerLine?: number;
   snap: boolean;
   onSelectScreen: (id?: string) => void;
+  onMoveScreen: (id: string, canvasX: number, canvasY: number) => void;
   onSelectCabinet: (id?: string, additive?: boolean, wholeRow?: boolean) => void;
   onMoveCabinet: (id: string, pixelX: number, pixelY: number) => void;
   onMoveSupportPlate: (screenId: string, id: string, xMm: number, yMm: number) => void;
@@ -55,7 +57,16 @@ interface RiggingDragState {
   pitchMm: number;
 }
 
-type DragState = CabinetDragState | RiggingDragState;
+interface ScreenDragState {
+  kind: "screen";
+  id: string;
+  startPointerX: number;
+  startPointerY: number;
+  startX: number;
+  startY: number;
+}
+
+type DragState = CabinetDragState | RiggingDragState | ScreenDragState;
 
 const PIXELMAP_COLORS = ["#4f0b4e", "#006262", "#5c5c00", "#00165c", "#006006", "#650900"];
 
@@ -65,12 +76,14 @@ export function CanvasEditor({
   viewMode,
   zoom,
   selectedScreenId,
+  isolatedScreen,
   selectedCabinetId,
   selectedCabinetIds,
   manualTracePort,
   manualPowerLine,
   snap,
   onSelectScreen,
+  onMoveScreen,
   onSelectCabinet,
   onMoveCabinet,
   onMoveSupportPlate,
@@ -118,8 +131,8 @@ export function CanvasEditor({
     const screen = cabinet ? project.screens.find((item) => item.id === cabinet.screenId) : undefined;
     if (!cabinet || !model || !screen) return undefined;
     const center = cabinetPixelCenter(cabinet, model);
-    return { x: screen.canvasX + center.x, y: screen.canvasY + center.y };
-  }, [activeTraceIds, cabinetById, modelById, project.screens]);
+    return { x: (isolatedScreen ? 0 : screen.canvasX) + center.x, y: (isolatedScreen ? 0 : screen.canvasY) + center.y };
+  }, [activeTraceIds, cabinetById, modelById, project.screens, isolatedScreen]);
   const runByCabinet = useMemo(() => {
     const map = new Map<string, { port: number; order: number; color: string }>();
     controller?.portRuns.forEach((run) =>
@@ -148,6 +161,24 @@ export function CanvasEditor({
   );
 
   const background = viewMode === "pixelmap" ? "#000" : "#f7f8fa";
+  const focusedScreen = project.screens.find((screen) => screen.id === selectedScreenId) ?? project.screens[0];
+  const visibleScreens = isolatedScreen
+    ? focusedScreen ? [focusedScreen] : []
+    : [...project.screens].sort((a, b) => Number(a.id === focusedScreen?.id) - Number(b.id === focusedScreen?.id));
+  const focusedBounds = visibleScreens[0] ? calculateScreenPixelBounds(visibleScreens[0], project.cabinets, libraries.cabinets) : undefined;
+  const viewport = isolatedScreen
+    ? { x: Math.min(0, (focusedBounds?.x ?? 0) - 16), y: Math.min(0, (focusedBounds?.y ?? 0) - 16),
+      width: Math.max(512, (focusedBounds?.x ?? 0) + (focusedBounds?.width ?? 0) + 32),
+      height: Math.max(384, (focusedBounds?.y ?? 0) + (focusedBounds?.height ?? 0) + 32) }
+    : { x: -16, y: -16,
+      width: Math.max(project.canvasWidth, ...visibleScreens.map((screen) => {
+        const bounds = calculateScreenPixelBounds(screen, project.cabinets, libraries.cabinets);
+        return screen.canvasX + bounds.x + bounds.width;
+      })) + 32,
+      height: Math.max(project.canvasHeight, ...visibleScreens.map((screen) => {
+        const bounds = calculateScreenPixelBounds(screen, project.cabinets, libraries.cabinets);
+        return screen.canvasY + bounds.y + bounds.height;
+      })) + 32 };
 
   function clientToSvg(clientX: number, clientY: number): { x: number; y: number } {
     const svg = svgRef.current;
@@ -173,6 +204,11 @@ export function CanvasEditor({
     }
     if (!drag) return;
     const point = clientToSvg(event.clientX, event.clientY);
+    if (drag.kind === "screen") {
+      onMoveScreen(drag.id, Math.max(0, Math.round(drag.startX + point.x - drag.startPointerX)),
+        Math.max(0, Math.round(drag.startY + point.y - drag.startPointerY)));
+      return;
+    }
     if (drag.kind !== "cabinet") {
       const xMm = Math.max(0, Math.round(drag.startXmm + (point.x - drag.startPointerX) * drag.pitchMm));
       const yMm = Math.max(0, Math.round(drag.startYmm + (point.y - drag.startPointerY) * drag.pitchMm));
@@ -201,9 +237,10 @@ export function CanvasEditor({
       const screen = project.screens.find((item) => item.id === cabinet.screenId);
       const model = modelById.get(cabinet.modelId);
       if (!screen || !model) return false;
+      if (isolatedScreen && screen.id !== visibleScreens[0]?.id) return false;
       const size = cabinetPixelSize(cabinet, model);
-      const x = screen.canvasX + cabinet.pixelX;
-      const y = screen.canvasY + cabinet.pixelY;
+      const x = (isolatedScreen ? 0 : screen.canvasX) + cabinet.pixelX;
+      const y = (isolatedScreen ? 0 : screen.canvasY) + cabinet.pixelY;
       return point.x >= x && point.x <= x + size.width && point.y >= y && point.y <= y + size.height;
     });
   }
@@ -217,7 +254,6 @@ export function CanvasEditor({
       event.metaKey || event.ctrlKey,
       event.shiftKey,
     );
-    onSelectScreen(cabinet.screenId);
     if (traceActive) {
       event.preventDefault();
       svgRef.current?.setPointerCapture(event.pointerId);
@@ -264,6 +300,16 @@ export function CanvasEditor({
     });
   }
 
+  function startScreenDrag(event: React.PointerEvent<SVGGElement>, screen: LedwallProject["screens"][number]): void {
+    event.preventDefault();
+    event.stopPropagation();
+    const point = clientToSvg(event.clientX, event.clientY);
+    event.currentTarget.setPointerCapture(event.pointerId);
+    onSelectScreen(screen.id);
+    setDrag({ kind: "screen", id: screen.id, startPointerX: point.x, startPointerY: point.y,
+      startX: screen.canvasX, startY: screen.canvasY });
+  }
+
   function handleWheel(event: React.WheelEvent<HTMLDivElement>): void {
     event.preventDefault();
     const scroll = event.currentTarget;
@@ -287,9 +333,9 @@ export function CanvasEditor({
       <svg
         ref={svgRef}
         className={`design-canvas ${traceActive ? "trace-mode" : ""}`}
-        viewBox={`0 0 ${project.canvasWidth} ${project.canvasHeight}`}
-        width={project.canvasWidth * zoom}
-        height={project.canvasHeight * zoom}
+        viewBox={`${viewport.x} ${viewport.y} ${viewport.width} ${viewport.height}`}
+        width={viewport.width * zoom}
+        height={viewport.height * zoom}
         style={{ background }}
         onPointerMove={handlePointerMove}
         onPointerUp={() => {
@@ -339,16 +385,17 @@ export function CanvasEditor({
             <path d="M 0 0 L 10 5 L 0 10 z" fill="#ff861c" />
           </marker>
         </defs>
-        <rect width={project.canvasWidth} height={project.canvasHeight} fill="url(#largeGrid)" />
+        <rect x={viewport.x} y={viewport.y} width={viewport.width} height={viewport.height} fill="url(#largeGrid)" />
+        {!isolatedScreen && <rect width={project.canvasWidth} height={project.canvasHeight} fill="none" stroke="#8294a5" strokeWidth="3" strokeDasharray="12 8" pointerEvents="none" />}
 
-        {project.screens.map((screen) => {
+        {visibleScreens.map((screen) => {
           const bounds = calculateScreenPixelBounds(screen, project.cabinets, libraries.cabinets);
           const screenCabinets = project.cabinets.filter((cabinet) => cabinet.screenId === screen.id);
-          const selected = screen.id === selectedScreenId;
+          const selected = screen.id === focusedScreen?.id;
           return (
             <g
               key={screen.id}
-              transform={`translate(${screen.canvasX} ${screen.canvasY})`}
+              transform={`translate(${isolatedScreen ? 0 : screen.canvasX} ${isolatedScreen ? 0 : screen.canvasY})`}
               onPointerDown={() => onSelectScreen(screen.id)}
             >
               {bounds.width > 0 && (
@@ -364,16 +411,6 @@ export function CanvasEditor({
                   pointerEvents="none"
                 />
               )}
-              <text
-                x={bounds.x + 8}
-                y={bounds.y + 24}
-                fontSize="20"
-                fontWeight="800"
-                fill={viewMode === "pixelmap" ? "#e9c832" : "#263747"}
-                pointerEvents="none"
-              >
-                {screen.name}
-              </text>
               {screenCabinets.map((cabinet) => {
                 const model = modelById.get(cabinet.modelId);
                 if (!model) return null;
@@ -551,6 +588,15 @@ export function CanvasEditor({
                     </g>
                   );
                 })}
+              {!isolatedScreen && (
+                <g className="screen-drag-handle" transform={`translate(${bounds.x + 4} ${bounds.y + 4})`}
+                  onPointerDown={(event) => startScreenDrag(event, screen)}>
+                  <title>Trascina per spostare lo schermo nel canvas master</title>
+                  <rect width={Math.max(140, Math.min(340, screen.name.length * 10 + 28))} height="28" rx="5"
+                    fill={selected ? "#fff0d9" : "#fff"} stroke={selected ? "#d78418" : "#728495"} strokeWidth="2" />
+                  <text x="10" y="20" fontSize="16" fontWeight="800" fill="#263747" pointerEvents="none">↔ {screen.name}</text>
+                </g>
+              )}
             </g>
           );
         })}

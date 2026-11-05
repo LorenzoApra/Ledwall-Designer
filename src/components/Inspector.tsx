@@ -22,10 +22,14 @@ import type {
   FlybarModel,
   LedwallProject,
   PortRun,
+  ProjectCanvas,
   Rotation,
   SupportPlateType,
 } from "../domain/types";
 import { DecimalInput, Field, Metric, Section, Toggle } from "./Ui";
+import { CablingPatternPicker } from "./CablingPatternPicker";
+import type { ExportScreen } from "../export/selection";
+import type { BatchExportKind } from "../export/batch";
 
 export type InspectorPanel = "project" | "design" | "data" | "power" | "weight" | "pixelmap" | "library" | "output";
 
@@ -33,6 +37,13 @@ interface InspectorProps {
   panel: InspectorPanel;
   project: LedwallProject;
   libraries: AppLibraries;
+  canvases: ProjectCanvas[];
+  selectedCanvasId: string;
+  onSelectCanvas: (id: string) => void;
+  onAddCanvas: () => void;
+  onRenameCanvas: (name: string) => void;
+  onDeleteCanvas: () => void;
+  onMoveScreenToCanvas: (screenId: string, canvasId: string) => void;
   selectedScreenId?: string;
   selectedCabinetId?: string;
   selectedCabinetIds: string[];
@@ -51,8 +62,9 @@ interface InspectorProps {
   onDeleteCabinet: () => void;
   onDuplicateCabinet: () => void;
   onShowBulk: () => void;
-  onAutoWire: () => void;
-  onAutoPower: () => void;
+  onAutoWire: (allScreens: boolean) => void;
+  onAutoPower: (allScreens: boolean) => void;
+  onArrangeScreens: () => void;
   onAssignSelectedCabinetToPowerLine: (lineNumber?: number) => void;
   onActivateManualPowerTrace: (lineNumber: number) => void;
   onFinishManualPowerTrace: () => void;
@@ -65,10 +77,10 @@ interface InspectorProps {
   onFinishManualTrace: () => void;
   onUndoManualTraceStep: () => void;
   onMoveCabinetInRun: (direction: -1 | 1) => void;
-  onExportMasterPng: () => void;
-  onExportScreenPng: () => void;
-  onExportTechnicalPdf: () => void;
-  onExportWiringPdf: () => void;
+  exportScreens: ExportScreen[];
+  exportScreenIds: string[];
+  onExportSelection: (ids: string[] | undefined) => void;
+  onBatchExport: (kind: BatchExportKind) => void;
   busy?: boolean;
 }
 
@@ -93,7 +105,27 @@ export function Inspector(props: InspectorProps) {
   );
 }
 
-function ProjectPanel({ project, onProjectChange }: InspectorProps) {
+function CanvasControls(props: InspectorProps) {
+  const canvas = props.canvases.find((item) => item.id === props.selectedCanvasId);
+  return (
+    <Section title="Canvas del progetto">
+      <Field label="Canvas selezionato">
+        <select value={props.selectedCanvasId} onChange={(event) => props.onSelectCanvas(event.target.value)}>
+          {props.canvases.map((item) => <option key={item.id} value={item.id} data-user-text>{item.name}</option>)}
+        </select>
+      </Field>
+      <Field label="Nome canvas"><input value={canvas?.name ?? ""} maxLength={48} onChange={(event) => props.onRenameCanvas(event.target.value)} /></Field>
+      <p className="empty-copy">Ogni canvas ha dimensioni, schermi, controller e cablaggi indipendenti. Puoi affiancare più schermi sullo stesso canvas.</p>
+      <div className="button-row">
+        <button className="button secondary grow" onClick={props.onAddCanvas}>+ Canvas</button>
+        <button className="button danger" disabled={props.canvases.length <= 1} onClick={props.onDeleteCanvas}>Elimina canvas</button>
+      </div>
+    </Section>
+  );
+}
+
+function ProjectPanel(props: InspectorProps) {
+  const { project, onProjectChange } = props;
   const updateMetadata = (key: keyof LedwallProject["metadata"], value: string) =>
     onProjectChange((current) => ({
       ...current,
@@ -101,6 +133,7 @@ function ProjectPanel({ project, onProjectChange }: InspectorProps) {
     }));
   return (
     <>
+      <CanvasControls {...props} />
       <Section title="Identificazione">
         <Field label="Nome progetto / Evento">
           <input
@@ -181,6 +214,7 @@ function DesignPanel(props: InspectorProps) {
 
   return (
     <>
+      <CanvasControls {...props} />
       <Section title="Schermi" action={<button className="mini-button" onClick={props.onAddScreen}>+ Schermo</button>}>
         <div className="screen-list">
           {project.screens.map((item) => (
@@ -190,9 +224,16 @@ function DesignPanel(props: InspectorProps) {
             </button>
           ))}
         </div>
+        {project.screens.length > 1 && <button className="button secondary full" onClick={props.onArrangeScreens}>Affianca schermi nel canvas</button>}
+        <p className="empty-copy">Usa “Solo schermo selezionato” per modificare uno schermo. Nel canvas master trascina il nome per spostarlo.</p>
         {screen && (
           <>
             <Field label="Nome schermo"><input value={screen.name} onChange={(event) => updateScreen({ name: event.target.value })} /></Field>
+            {props.canvases.length > 1 && <Field label="Canvas dello schermo" hint="Il percorso dei cavi viene mantenuto; porte e circuiti vengono assegnati nel canvas di destinazione.">
+              <select value={props.selectedCanvasId} onChange={(event) => props.onMoveScreenToCanvas(screen.id, event.target.value)}>
+                {props.canvases.map((canvas) => <option key={canvas.id} value={canvas.id} data-user-text>{canvas.name}</option>)}
+              </select>
+            </Field>}
             <div className="two-columns">
               <Field label="Canvas X"><input type="number" value={screen.canvasX} onChange={(event) => updateScreen({ canvasX: Number(event.target.value) })} /></Field>
               <Field label="Canvas Y"><input type="number" value={screen.canvasY} onChange={(event) => updateScreen({ canvasY: Number(event.target.value) })} /></Field>
@@ -366,7 +407,7 @@ function DataPanel(props: InspectorProps) {
             <Metric label="Totale" value={`${formatInt(capacity.totalCapacityPixels)} px`} />
           </div>
         )}
-        <button className="button primary full" onClick={props.onAutoWire}>Calcola cablaggio automatico</button>
+        <AutomaticCablingControls {...props} mode="data" />
         {capacity?.warnings.map((warning) => <p className="warning-copy" key={warning}>{warning}</p>)}
       </Section>
 
@@ -493,6 +534,38 @@ function DataPanel(props: InspectorProps) {
   );
 }
 
+function AutomaticCablingControls(props: InspectorProps & { mode: "data" | "power" }) {
+  const [allScreens, setAllScreens] = useState(false);
+  const screen = props.project.screens.find((item) => item.id === props.selectedScreenId) ?? props.project.screens[0];
+  const key = props.mode === "data" ? "dataPattern" : "powerPattern";
+  return (
+    <div className="automatic-cabling-controls">
+      <Field label="Schermo">
+        <select value={screen?.id ?? ""} onChange={(event) => props.onSelectScreen(event.target.value)}>
+          {props.project.screens.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+        </select>
+      </Field>
+      <Field label="Pattern di cablaggio" hint="Il punto giallo indica il primo cabinet. Il percorso continua fino al limite della porta o della linea.">
+        <CablingPatternPicker value={screen?.[key] ?? (props.mode === "data" ? "columns-tl" : "rows-tl")} onChange={(pattern) => {
+          props.onProjectChange((current) => ({ ...current, screens: current.screens.map((item) =>
+            item.id === screen?.id ? { ...item, [key]: pattern } : item,
+          ) }));
+        }} />
+      </Field>
+      <Field label="Applica a">
+        <select value={allScreens ? "all" : "selected"} onChange={(event) => setAllScreens(event.target.value === "all")}>
+          <option value="selected">Schermo selezionato</option>
+          <option value="all">Tutti gli schermi</option>
+        </select>
+      </Field>
+      {allScreens && <p className="empty-copy">Ogni schermo usa il proprio pattern. Le linee non collegano schermi diversi.</p>}
+      <button className="button primary full" disabled={!screen} onClick={() =>
+        props.mode === "data" ? props.onAutoWire(allScreens) : props.onAutoPower(allScreens)
+      }>{props.mode === "data" ? "Calcola cablaggio automatico" : "Distribuisci linee automaticamente"}</button>
+    </div>
+  );
+}
+
 function PowerPanel(props: InspectorProps) {
   const { project, onProjectChange, libraries } = props;
   const metrics = calculatePowerLineMetrics(project, libraries);
@@ -545,7 +618,7 @@ function PowerPanel(props: InspectorProps) {
           <Field label="Uso %"><input type="number" value={project.electrical.utilizationPercent} onChange={(event) => update("utilizationPercent", Number(event.target.value))} /></Field>
         </div>
         <div className="info-strip">Limite operativo: {(project.electrical.voltageV * project.electrical.breakerA * project.electrical.utilizationPercent / 100).toFixed(0)} W per linea</div>
-        <button className="button primary full" onClick={props.onAutoPower}>Distribuisci linee automaticamente</button>
+        <AutomaticCablingControls {...props} mode="power" />
       </Section>
       <Section title="Disegno manuale linee">
         {props.manualPowerLine !== undefined && (
@@ -849,10 +922,8 @@ function PixelmapPanel(props: InspectorProps) {
         <Toggle label="Risoluzione" checked={screen.pixelmap.showResolution} onChange={(value) => update("showResolution", value)} />
         <Toggle label="Logo" checked={screen.pixelmap.showLogo} onChange={(value) => update("showLogo", value)} />
       </Section>
-      <Section title="Esporta PNG">
-        <button className="button primary full" disabled={props.busy} onClick={props.onExportScreenPng}>Pixelmap schermo nativa</button>
-        <button className="button secondary full" disabled={props.busy} onClick={props.onExportMasterPng}>Pixelmap master {project.canvasWidth}×{project.canvasHeight}</button>
-      </Section>
+      <ExportScreenSelection {...props} />
+      <PixelmapExportButtons {...props} />
     </>
   );
 }
@@ -1148,21 +1219,52 @@ function LibraryPanel(props: InspectorProps) {
   );
 }
 
+function ExportScreenSelection(props: InspectorProps) {
+  return <Section title="Schermi da esportare">
+    <div className="button-row">
+      <button className="button secondary grow" disabled={props.busy} onClick={() => props.onExportSelection(undefined)}>Tutti</button>
+      <button className="button secondary grow" disabled={props.busy} onClick={() => props.onExportSelection([])}>Nessuno</button>
+    </div>
+    <button className="button secondary full" disabled={props.busy} onClick={() => props.onExportSelection(props.exportScreens.filter((screen) => screen.canvasId === props.selectedCanvasId && screen.cabinetCount > 0).map((screen) => screen.id))}>Solo questo canvas</button>
+    <div className="export-screen-list">
+      {props.canvases.map((canvas) => <div className="export-canvas-group" key={canvas.id}>
+        <strong data-user-text>{canvas.name}</strong>
+        {props.exportScreens.filter((screen) => screen.canvasId === canvas.id).map((screen) => <label className="export-screen-option" key={screen.id}>
+          <input type="checkbox" checked={props.exportScreenIds.includes(screen.id)} disabled={props.busy || !screen.cabinetCount}
+            onChange={(event) => props.onExportSelection(event.target.checked ? [...props.exportScreenIds, screen.id] : props.exportScreenIds.filter((id) => id !== screen.id))} />
+          <span><span data-user-text>{screen.name}</span><small>{screen.cabinetCount} cabinet · {screen.activePixels ? `${formatInt(screen.activePixels)} px` : "Solo strutturale"}</small></span>
+        </label>)}
+      </div>)}
+    </div>
+    <p className="empty-copy">{readLanguage() === "en" ? "Selected screens" : "Schermi selezionati"}: {props.exportScreenIds.length}/{props.exportScreens.filter((screen) => screen.cabinetCount > 0).length}</p>
+    <p className="empty-copy">La selezione vale per tutti gli export, anche tra canvas diversi. Le pixelmap escludono gli schermi senza pixel attivi.</p>
+  </Section>;
+}
+
+function PixelmapExportButtons(props: InspectorProps) {
+  const disabled = props.busy || !props.exportScreens.some((screen) => props.exportScreenIds.includes(screen.id) && screen.activePixels > 0);
+  return <Section title="Pixelmap PDF e PNG">
+    <button className="button primary full" disabled={disabled} onClick={() => props.onBatchExport("pixelmapBundle")}>PDF + PNG pixelmap</button>
+    <button className="button secondary full" disabled={disabled} onClick={() => props.onBatchExport("pixelmapPdf")}>PDF pixelmap</button>
+    <button className="button secondary full" disabled={disabled} onClick={() => props.onBatchExport("screenPng")}>PNG schermi</button>
+    <button className="button secondary full" disabled={disabled} onClick={() => props.onBatchExport("masterPng")}>PNG canvas</button>
+    <p className="empty-copy">Un PDF unico e PNG pixel-to-pixel. Più PNG o PDF + PNG vengono salvati in un solo ZIP. I PNG canvas mantengono posizioni e dimensioni originali.</p>
+  </Section>;
+}
+
 function OutputPanel(props: InspectorProps) {
   const totals = useMemo(() => calculateProjectTotals(props.project, props.libraries), [props.project, props.libraries]);
   return (
     <>
-      <Section title="Stato progetto">
+      <Section title="Stato canvas">
         <div className="info-grid"><Metric label="Schermi" value={String(totals.screenCount)} /><Metric label="Cabinet" value={String(totals.cabinetCount)} /><Metric label="Pixel" value={formatInt(totals.pixels)} /><Metric label="Potenza max" value={`${(totals.maxW / 1000).toFixed(2)} kW`} /><Metric label="Peso stimato" value={`${totals.totalEstimatedWeightKg.toFixed(1)} kg`} /></div>
       </Section>
+      <ExportScreenSelection {...props} />
       <Section title="Documentazione PDF">
-        <button className="button primary full" disabled={props.busy} onClick={props.onExportTechnicalPdf}>PDF tecnico + distinta</button>
-        <button className="button secondary full" disabled={props.busy} onClick={props.onExportWiringPdf}>PDF cablaggi A3</button>
+        <button className="button primary full" disabled={props.busy || !props.exportScreenIds.length} onClick={() => props.onBatchExport("technicalPdf")}>PDF tecnico + distinta</button>
+        <button className="button secondary full" disabled={props.busy || !props.exportScreenIds.length} onClick={() => props.onBatchExport("wiringPdf")}>PDF cablaggi A3</button>
       </Section>
-      <Section title="Pixelmap PNG">
-        <button className="button primary full" disabled={props.busy} onClick={props.onExportScreenPng}>Schermo selezionato</button>
-        <button className="button secondary full" disabled={props.busy} onClick={props.onExportMasterPng}>Canvas master</button>
-      </Section>
+      <PixelmapExportButtons {...props} />
     </>
   );
 }

@@ -5,9 +5,11 @@ import {
 } from "./capacity";
 import { cabinetPixelCount, distanceBetweenCabinets } from "./geometry";
 import { createId } from "./id";
+import { CABLING_PATTERNS, orderCabinetsByPattern } from "./cablingPatterns";
 import type {
   AppLibraries,
   CabinetInstance,
+  CablingPattern,
   ControllerInstance,
   LedScreen,
   PortRun,
@@ -44,11 +46,8 @@ export interface UndoPortRunResult {
   nextCabinetId?: string;
 }
 
-type Direction = "row" | "column";
-
 interface Candidate {
   ordered: CabinetInstance[];
-  direction: Direction;
   label: string;
 }
 
@@ -57,6 +56,7 @@ export function createAutoWiring(
   cabinets: CabinetInstance[],
   controller: ControllerInstance,
   libraries: AppLibraries,
+  pattern: CablingPattern = screen.dataPattern ?? "columns-tl",
 ): AutoWiringResult {
   const warnings: string[] = [];
   const controllerModel = libraries.controllers.find((model) => model.id === controller.modelId);
@@ -86,14 +86,11 @@ export function createAutoWiring(
     );
   }
 
-  const candidates = createCandidates(screenCabinets);
   const includeVirtualTail = usesNovaLctVirtualTail(controllerModel);
-  const evaluated = candidates
-    .map((candidate) => evaluateCandidate(candidate, capacity.portCapacityPixels, modelById, includeVirtualTail))
-    .filter((item): item is NonNullable<typeof item> => item !== null)
-    .sort((a, b) => a.groups.length - b.groups.length || a.distanceMm - b.distanceMm);
-
-  const best = evaluated[0];
+  const best = evaluateCandidate({
+    ordered: orderCabinetsByPattern(screenCabinets, pattern),
+    label: CABLING_PATTERNS.find((item) => item.id === pattern)?.label ?? pattern,
+  }, capacity.portCapacityPixels, modelById, includeVirtualTail);
   if (!best) {
     return {
       runs: [],
@@ -160,6 +157,38 @@ export function removeCabinetFromPortRuns(
     .filter((run) => run.cabinetIds.length > 0);
 }
 
+/** Replace only the chosen screens, reserving other main and backup ports. */
+export function mergeAutomaticPortRuns(
+  existing: PortRun[],
+  targetCabinetIds: Set<string>,
+  generated: PortRun[],
+  totalPorts: number,
+  redundancy: boolean,
+  backupControllerLabel: string,
+): { runs: PortRun[]; error?: string } {
+  const retained = existing.map((run) => ({ ...run, cabinetIds: run.cabinetIds.filter((id) => !targetCabinetIds.has(id)) }))
+    .filter((run) => run.cabinetIds.length > 0);
+  const reserved = new Set(retained.flatMap((run) =>
+    redundancy && run.backupPortNumber !== undefined ? [run.portNumber, run.backupPortNumber] : [run.portNumber],
+  ));
+  const available = Array.from({ length: totalPorts }, (_, index) => index + 1).filter((port) => !reserved.has(port));
+  if (generated.length > available.length) {
+    return { runs: existing, error: `Servono ${generated.length} porte libere, disponibili ${available.length}.` };
+  }
+  const newRuns: PortRun[] = generated.map((run, index) => ({
+    ...run, portNumber: available[index], color: portColor(available[index] - 1),
+    backupPortNumber: undefined, backupControllerName: undefined,
+  }));
+  if (redundancy) {
+    const backups = available.slice(newRuns.length).reverse();
+    newRuns.forEach((run, index) => {
+      run.backupPortNumber = backups[index];
+      run.backupControllerName = `${backupControllerLabel}: porta ${run.portNumber}`;
+    });
+  }
+  return { runs: [...retained, ...newRuns].sort((a, b) => a.portNumber - b.portNumber) };
+}
+
 export function appendCabinetToPortRun(
   runs: PortRun[],
   portNumber: number,
@@ -207,48 +236,6 @@ export function undoLastCabinetFromPortRun(
     removedCabinetId,
     nextCabinetId: nextIds.at(-1),
   };
-}
-
-function createCandidates(cabinets: CabinetInstance[]): Candidate[] {
-  const rowTop = serpentine(cabinets, "row", false, false);
-  const rowBottom = serpentine(cabinets, "row", true, false);
-  const columnLeft = serpentine(cabinets, "column", false, false);
-  const columnRight = serpentine(cabinets, "column", true, false);
-  return [
-    { ordered: rowTop, direction: "row", label: "righe dall'alto" },
-    { ordered: [...rowTop].reverse(), direction: "row", label: "righe dall'alto, inverso" },
-    { ordered: rowBottom, direction: "row", label: "righe dal basso" },
-    { ordered: [...rowBottom].reverse(), direction: "row", label: "righe dal basso, inverso" },
-    { ordered: columnLeft, direction: "column", label: "colonne da sinistra" },
-    { ordered: [...columnLeft].reverse(), direction: "column", label: "colonne da sinistra, inverso" },
-    { ordered: columnRight, direction: "column", label: "colonne da destra" },
-    { ordered: [...columnRight].reverse(), direction: "column", label: "colonne da destra, inverso" },
-  ];
-}
-
-function serpentine(
-  cabinets: CabinetInstance[],
-  direction: Direction,
-  reversePrimary: boolean,
-  reverseSecondary: boolean,
-): CabinetInstance[] {
-  const primaryKey = direction === "row" ? "row" : "column";
-  const secondaryKey = direction === "row" ? "column" : "row";
-  const groups = new Map<number, CabinetInstance[]>();
-  for (const cabinet of cabinets) {
-    const key = cabinet[primaryKey];
-    const group = groups.get(key) ?? [];
-    group.push(cabinet);
-    groups.set(key, group);
-  }
-  const keys = [...groups.keys()].sort((a, b) => (reversePrimary ? b - a : a - b));
-  return keys.flatMap((key, groupIndex) => {
-    const group = groups.get(key) ?? [];
-    const ascending = (groupIndex % 2 === 0) !== reverseSecondary;
-    return [...group].sort((a, b) =>
-      ascending ? a[secondaryKey] - b[secondaryKey] : b[secondaryKey] - a[secondaryKey],
-    );
-  });
 }
 
 function evaluateCandidate(

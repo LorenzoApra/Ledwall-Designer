@@ -1,5 +1,6 @@
 import { calculateScreenPixelBounds, cabinetPixelSize } from "../domain/geometry";
 import type { AppLibraries, LedScreen, LedwallProject } from "../domain/types";
+import { canvasProject, projectCanvases } from "../domain/canvases";
 
 const CABINET_COLORS = ["#4f0b4e", "#006262", "#5c5c00", "#00165c", "#006006", "#650900"];
 
@@ -13,7 +14,9 @@ export interface RenderedPixelmap {
 export async function renderMasterPixelmap(
   project: LedwallProject,
   libraries: AppLibraries,
+  canvasId?: string,
 ): Promise<RenderedPixelmap> {
+  project = canvasProject(project, canvasId);
   const canvas = createCanvas(project.canvasWidth, project.canvasHeight);
   const context = requireContext(canvas);
   context.fillStyle = "#000";
@@ -25,7 +28,7 @@ export async function renderMasterPixelmap(
     canvas,
     width: canvas.width,
     height: canvas.height,
-    label: `${project.metadata.projectName} ${canvas.width}x${canvas.height}`,
+    label: `${projectCanvases(project)[0].name} ${canvas.width}x${canvas.height}`,
   };
 }
 
@@ -50,7 +53,7 @@ export async function renderScreenPixelmap(
     canvas,
     width: canvas.width,
     height: canvas.height,
-    label: `${screen.name} ${canvas.width}x${canvas.height}`,
+    label: `${projectCanvases(project).find((item) => item.id === screen.canvasId)?.name ?? projectCanvases(project)[0].name} - ${screen.name} ${canvas.width}x${canvas.height}`,
   };
 }
 
@@ -115,7 +118,10 @@ async function drawScreenPattern(
     drawBars(context, left, top, bounds.width, bounds.height, options.showColorBars, options.showGrayscale);
   }
   if (options.showScreenName) {
-    const fontSize = Math.max(22, Math.min(bounds.width / Math.max(5, screen.name.length * 0.62), bounds.height / 7));
+    let fontSize = Math.max(22, Math.min(bounds.width / Math.max(5, screen.name.length * 0.62), bounds.height / 7));
+    context.font = `900 ${fontSize}px Arial, sans-serif`;
+    const textWidth = context.measureText(screen.name.toUpperCase()).width;
+    fontSize *= Math.min(1, bounds.width * 0.94 / Math.max(1, textWidth));
     context.font = `900 ${fontSize}px Arial, sans-serif`;
     context.fillStyle = "#e7c31e";
     context.textAlign = "center";

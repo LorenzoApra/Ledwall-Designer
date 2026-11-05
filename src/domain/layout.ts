@@ -1,6 +1,6 @@
-import { rotatedSize } from "./geometry";
+import { calculateScreenPixelBounds, rotatedSize, type Bounds } from "./geometry";
 import { createId } from "./id";
-import type { CabinetInstance, CabinetModel, LedScreen, Rotation } from "./types";
+import type { CabinetInstance, CabinetModel, LedScreen, LedwallProject, Rotation } from "./types";
 
 export interface GridOptions {
   rows: number;
@@ -51,3 +51,48 @@ export function replaceScreenCabinets(
   return [...allCabinets.filter((cabinet) => cabinet.screenId !== screenId), ...replacement];
 }
 
+/** Find an unoccupied master-canvas position without changing existing screens. */
+export function findAvailableScreenPosition(
+  project: LedwallProject,
+  models: CabinetModel[],
+  screenId: string,
+  bounds: Bounds = { x: 0, y: 0, width: 256, height: 256 },
+): { canvasX: number; canvasY: number; fits: boolean } {
+  const gap = 32;
+  const occupied = project.screens.filter((screen) => screen.id !== screenId).map((screen) => {
+    const box = calculateScreenPixelBounds(screen, project.cabinets, models);
+    return {
+      x: screen.canvasX + box.x,
+      y: screen.canvasY + box.y,
+      width: box.width || 256,
+      height: box.height || 256,
+    };
+  });
+  const xs = [...new Set([0, ...occupied.map((box) => box.x + box.width + gap)])].sort((a, b) => a - b);
+  const ys = [...new Set([0, ...occupied.map((box) => box.y + box.height + gap)])].sort((a, b) => a - b);
+  for (const y of ys) {
+    for (const x of xs) {
+      if (x + bounds.width > project.canvasWidth || y + bounds.height > project.canvasHeight) continue;
+      if (occupied.some((box) => x < box.x + box.width + gap && x + bounds.width + gap > box.x &&
+        y < box.y + box.height + gap && y + bounds.height + gap > box.y)) continue;
+      return { canvasX: x - bounds.x, canvasY: y - bounds.y, fits: true };
+    }
+  }
+  // Keep the screen accessible outside the canvas when the master has no free room.
+  return {
+    canvasX: Math.max(0, ...occupied.map((box) => box.x + box.width + gap)) - bounds.x,
+    canvasY: -bounds.y,
+    fits: false,
+  };
+}
+
+export function arrangeScreens(project: LedwallProject, models: CabinetModel[]): LedwallProject {
+  const arranged: LedwallProject = { ...project, screens: [] };
+  for (const screen of project.screens) {
+    const bounds = calculateScreenPixelBounds(screen, project.cabinets, models);
+    const position = findAvailableScreenPosition(arranged, models, screen.id,
+      bounds.width ? bounds : undefined);
+    arranged.screens.push({ ...screen, canvasX: position.canvasX, canvasY: position.canvasY });
+  }
+  return arranged;
+}

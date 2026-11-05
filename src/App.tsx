@@ -12,9 +12,9 @@ import {
   removeCabinetFromPowerLines,
   undoLastCabinetFromPowerLine,
 } from "./domain/electrical";
-import { cabinetPhysicalSize, cabinetPixelSize } from "./domain/geometry";
+import { cabinetPhysicalSize, cabinetPixelSize, calculateScreenPixelBounds } from "./domain/geometry";
 import { createId } from "./domain/id";
-import { createCabinetGrid, replaceScreenCabinets } from "./domain/layout";
+import { arrangeScreens, createCabinetGrid, findAvailableScreenPosition, replaceScreenCabinets } from "./domain/layout";
 import type {
   LedwallProject,
   PortRun,
@@ -23,27 +23,26 @@ import type {
 } from "./domain/types";
 import {
   appendCabinetToPortRun,
-  assignAutomaticBackupPorts,
   createAutoWiring,
+  mergeAutomaticPortRuns,
   portColor,
   removeCabinetFromPortRuns,
   undoLastCabinetFromPortRun,
 } from "./domain/wiring";
 import { createAutomaticSuspensionPoints } from "./domain/weight";
 import { createAutomaticSupportPlates } from "./domain/supportPlates";
-import { renderMasterPixelmap, renderScreenPixelmap } from "./export/pixelmap";
+import { prepareBatchExport, type BatchExportKind } from "./export/batch";
+import { exportScreenList } from "./export/selection";
 import {
-  canvasToPngBytes,
   openProjectFile,
   isTauriRuntime,
-  sanitizeFilename,
   saveBinary,
   saveProjectFile,
-  versionedFilename,
 } from "./platform/files";
 import { useHistoryProject } from "./state/useHistoryProject";
 import { useLibraries } from "./state/useLibraries";
 import { numberLocale, observeTranslations, readLanguage, saveLanguage, type AppLanguage } from "./i18n";
+import { addProjectCanvas, canvasProject, moveScreenToCanvas, projectCanvases, removeProjectCanvas, updateCanvasProject } from "./domain/canvases";
 
 const PANELS: { id: InspectorPanel; label: string; icon: string }[] = [
   { id: "project", label: "Progetto", icon: "PR" },
@@ -57,7 +56,18 @@ const PANELS: { id: InspectorPanel; label: string; icon: string }[] = [
 ];
 
 export default function App() {
-  const history = useHistoryProject(createDefaultProject());
+  const projectHistory = useHistoryProject(createDefaultProject());
+  const fullProject = projectHistory.project;
+  const canvases = projectCanvases(fullProject);
+  const [selectedCanvasId, setSelectedCanvasId] = useState(canvases[0].id);
+  const activeCanvas = canvases.find((canvas) => canvas.id === selectedCanvasId) ?? canvases[0];
+  const project = useMemo(() => canvasProject(fullProject, activeCanvas.id), [fullProject, activeCanvas.id]);
+  const history = {
+    ...projectHistory,
+    project,
+    commit: (update: (current: LedwallProject) => LedwallProject) =>
+      projectHistory.commit((current) => updateCanvasProject(current, activeCanvas.id, update)),
+  };
   const { libraries, setLibraries, resetLibraries } = useLibraries();
   const [panel, setPanel] = useState<InspectorPanel>("design");
   const [selectedScreenId, setSelectedScreenId] = useState<string | undefined>(history.project.screens[0]?.id);
@@ -67,16 +77,20 @@ export default function App() {
   const [manualPowerLine, setManualPowerLine] = useState<number>();
   const [zoom, setZoom] = useState(0.25);
   const [snap, setSnap] = useState(true);
+  const [isolatedScreen, setIsolatedScreen] = useState(true);
   const [bulkOpen, setBulkOpen] = useState(false);
   const [filePath, setFilePath] = useState<string>();
-  const [savedProject, setSavedProject] = useState(history.project);
+  const [savedProject, setSavedProject] = useState(fullProject);
   const [status, setStatus] = useState("Pronto");
   const [busy, setBusy] = useState(false);
+  const [exportSelection, setExportSelection] = useState<string[] | undefined>();
+  const exportScreens = useMemo(() => exportScreenList(fullProject, libraries), [fullProject, libraries]);
+  const exportScreenIds = exportScreens.filter((screen) => screen.cabinetCount > 0 &&
+    (exportSelection === undefined || exportSelection.includes(screen.id))).map((screen) => screen.id);
   const [language, setLanguage] = useState<AppLanguage>(readLanguage);
   const appShell = useRef<HTMLDivElement>(null);
   const closeDialogOpen = useRef(false);
-  const project = history.project;
-  const hasUnsavedChanges = project !== savedProject;
+  const hasUnsavedChanges = fullProject !== savedProject;
   const viewMode: ViewMode =
     panel === "data" ? "data" : panel === "power" ? "power" : panel === "weight" ? "weight" : panel === "pixelmap" ? "pixelmap" : "design";
   const selectedScreen = project.screens.find((screen) => screen.id === selectedScreenId) ?? project.screens[0];
@@ -85,7 +99,7 @@ export default function App() {
     document.documentElement.lang = language;
     saveLanguage(language);
     return appShell.current ? observeTranslations(appShell.current, language) : undefined;
-  }, [language]);
+  }, [language, activeCanvas.id]);
 
   const projectStats = useMemo(() => {
     const totalPixels = project.cabinets.reduce((sum, cabinet) => {
@@ -193,15 +207,15 @@ export default function App() {
       disposed = true;
       unlisten?.();
     };
-  }, [hasUnsavedChanges, project, filePath, language]);
+  }, [hasUnsavedChanges, fullProject, filePath, language]);
 
   async function handleSave(saveAs: boolean): Promise<boolean> {
     try {
       setBusy(true);
-      const result = await saveProjectFile(project, saveAs ? undefined : filePath);
+      const result = await saveProjectFile(fullProject, saveAs ? undefined : filePath);
       if (result) {
         setFilePath(result.path);
-        setSavedProject(project);
+        setSavedProject(fullProject);
         setStatus(`Salvato: ${result.path.split("/").at(-1)}`);
         return true;
       }
@@ -220,9 +234,12 @@ export default function App() {
       const result = await openProjectFile();
       if (!result) return;
       history.replace(result.project);
+      setExportSelection(undefined);
       setFilePath(result.path);
       setSavedProject(result.project);
-      setSelectedScreenId(result.project.screens[0]?.id);
+      const firstCanvas = projectCanvases(result.project)[0];
+      setSelectedCanvasId(firstCanvas.id);
+      setSelectedScreenId(canvasProject(result.project, firstCanvas.id).screens[0]?.id);
       setSelectedCabinetId(undefined);
       setSelectedCabinetIds([]);
       setManualTracePort(undefined);
@@ -238,7 +255,9 @@ export default function App() {
   function handleNew(): void {
     const next = createDefaultProject();
     history.replace(next);
+    setExportSelection(undefined);
     setSavedProject(next);
+    setSelectedCanvasId(projectCanvases(next)[0].id);
     setSelectedScreenId(next.screens[0]?.id);
     setSelectedCabinetId(undefined);
     setSelectedCabinetIds([]);
@@ -248,8 +267,76 @@ export default function App() {
     setStatus("Nuovo progetto creato");
   }
 
+  function selectCanvas(id: string): void {
+    if (id === activeCanvas.id || !canvases.some((canvas) => canvas.id === id)) return;
+    setSelectedCanvasId(id);
+    setSelectedScreenId(canvasProject(fullProject, id).screens[0]?.id);
+    setSelectedCabinetId(undefined);
+    setSelectedCabinetIds([]);
+    setManualTracePort(undefined);
+    setManualPowerLine(undefined);
+    setBulkOpen(false);
+  }
+
+  function addCanvas(): void {
+    let number = canvases.length + 1;
+    while (canvases.some((canvas) => canvas.name === `CANVAS ${number}`)) number += 1;
+    const next = addProjectCanvas(fullProject, `CANVAS ${number}`, language === "en" ? "SCREEN 1" : "SCHERMO 1", activeCanvas.id);
+    const created = projectCanvases(next).at(-1)!;
+    projectHistory.commit(() => next);
+    setSelectedCanvasId(created.id);
+    setSelectedScreenId(canvasProject(next, created.id).screens[0]?.id);
+    setSelectedCabinetId(undefined);
+    setSelectedCabinetIds([]);
+    setManualTracePort(undefined);
+    setManualPowerLine(undefined);
+    setBulkOpen(false);
+    setStatus(`Canvas creato: ${created.name}`);
+  }
+
+  function renameCanvas(name: string): void {
+    projectHistory.commit((current) => ({ ...current, canvases: projectCanvases(current).map((canvas) =>
+      canvas.id === activeCanvas.id ? { ...canvas, name } : canvas,
+    ) }));
+  }
+
+  function changeScreenCanvas(screenId: string, canvasId: string): void {
+    const result = moveScreenToCanvas(fullProject, screenId, canvasId, libraries);
+    if (result.error) {
+      setStatus(result.error);
+      return;
+    }
+    if (result.project === fullProject) return;
+    projectHistory.commit(() => result.project);
+    setSelectedCanvasId(canvasId);
+    setSelectedScreenId(screenId);
+    setSelectedCabinetId(undefined);
+    setSelectedCabinetIds([]);
+    setManualTracePort(undefined);
+    setManualPowerLine(undefined);
+    setStatus(`Schermo spostato nel canvas: ${canvases.find((canvas) => canvas.id === canvasId)?.name}`);
+  }
+
+  async function deleteCanvas(): Promise<void> {
+    if (canvases.length <= 1) return;
+    const prompt = language === "en"
+      ? `Delete ${activeCanvas.name} and its ${project.cabinets.length} cabinets, screens and wiring?`
+      : `Eliminare ${activeCanvas.name} con i suoi ${project.cabinets.length} cabinet, schermi e cablaggi?`;
+    const deleteLabel = language === "en" ? "Delete" : "Elimina";
+    const confirmed = isTauriRuntime()
+      ? await message(prompt, { title: language === "en" ? "Delete canvas" : "Elimina canvas", kind: "warning",
+        buttons: { ok: deleteLabel, cancel: language === "en" ? "Cancel" : "Annulla" } }) === deleteLabel
+      : window.confirm(prompt);
+    if (!confirmed) return;
+    const remaining = canvases.find((canvas) => canvas.id !== activeCanvas.id)!;
+    projectHistory.commit((current) => removeProjectCanvas(current, activeCanvas.id));
+    selectCanvas(remaining.id);
+    setStatus(`Canvas eliminato: ${activeCanvas.name}`);
+  }
+
   function addScreen(): void {
     const id = createId("screen");
+    const position = findAvailableScreenPosition(project, libraries.cabinets, id);
     history.commit((current) => ({
       ...current,
       screens: [
@@ -257,17 +344,20 @@ export default function App() {
         {
           id,
           name: `${language === "en" ? "SCREEN" : "SCHERMO"} ${current.screens.length + 1}`,
-          canvasX: 0,
-          canvasY: 0,
+          canvasX: position.canvasX,
+          canvasY: position.canvasY,
           cabinetIds: [],
           pixelmap: { ...DEFAULT_PIXELMAP_OPTIONS },
           suspensionPoints: [],
           supportPlates: [],
           flybars: [],
+          dataPattern: "columns-tl",
+          powerPattern: "rows-tl",
         },
       ],
     }));
     setSelectedScreenId(id);
+    setIsolatedScreen(true);
     setSelectedCabinetId(undefined);
     setSelectedCabinetIds([]);
   }
@@ -302,6 +392,9 @@ export default function App() {
     const model = libraries.cabinets.find((item) => item.id === values.modelId);
     if (!model) return;
     const grid = createCabinetGrid(selectedScreen, model, values);
+    const isNewScreen = !project.cabinets.some((cabinet) => cabinet.screenId === selectedScreen.id);
+    const position = isNewScreen ? findAvailableScreenPosition(project, libraries.cabinets, selectedScreen.id,
+      calculateScreenPixelBounds(selectedScreen, grid, libraries.cabinets)) : undefined;
     history.commit((current) => {
       const oldIds = new Set(
         values.replaceExisting
@@ -317,7 +410,7 @@ export default function App() {
         cabinets,
         screens: current.screens.map((screen) =>
           screen.id === selectedScreen.id
-            ? { ...screen, cabinetIds: nextIds, suspensionPoints: [], supportPlates: [], flybars: [] }
+            ? { ...screen, ...(position ? { canvasX: position.canvasX, canvasY: position.canvasY } : {}), cabinetIds: nextIds, suspensionPoints: [], supportPlates: [], flybars: [] }
             : screen,
         ),
         controllers: current.controllers.map((controller) => ({
@@ -336,7 +429,28 @@ export default function App() {
     setSelectedCabinetIds([]);
     setManualTracePort(undefined);
     setManualPowerLine(undefined);
-    setStatus(`Creata matrice ${values.columns}×${values.rows} (${grid.length} cabinet)`);
+    setStatus(position && !position.fits ? "Schermo fuori dal canvas master: riposizionalo o amplia il canvas." : `Creata matrice ${values.columns}×${values.rows} (${grid.length} cabinet)`);
+  }
+
+  function selectScreen(id?: string): void {
+    if (!id || id === selectedScreenId) return;
+    setSelectedScreenId(id);
+    setSelectedCabinetId(undefined);
+    setSelectedCabinetIds([]);
+    setManualTracePort(undefined);
+    setManualPowerLine(undefined);
+  }
+
+  function moveScreen(id: string, canvasX: number, canvasY: number): void {
+    history.commit((current) => ({ ...current, screens: current.screens.map((screen) =>
+      screen.id === id ? { ...screen, canvasX, canvasY } : screen,
+    ) }));
+  }
+
+  function arrangeAllScreens(): void {
+    history.commit((current) => arrangeScreens(current, libraries.cabinets));
+    setIsolatedScreen(false);
+    setStatus("Schermi affiancati nel canvas master.");
   }
 
   function moveCabinet(id: string, pixelX: number, pixelY: number): void {
@@ -401,6 +515,10 @@ export default function App() {
   }
 
   function selectAllCabinets(): void {
+    if (isolatedScreen) {
+      selectAllCabinetsInScreen();
+      return;
+    }
     const ids = [...project.cabinets]
       .sort((a, b) => a.screenId.localeCompare(b.screenId) || a.row - b.row || a.column - b.column)
       .map((cabinet) => cabinet.id);
@@ -498,31 +616,35 @@ export default function App() {
     selectCabinet(id);
   }
 
-  function autoWire(): void {
+  function autoWire(allScreens = false): void {
     const controller = project.controllers[0];
     const controllerModel = libraries.controllers.find((model) => model.id === controller?.modelId);
     if (!controller || !controllerModel) return;
-    let nextPort = 1;
     const runs: PortRun[] = [];
     const warnings: string[] = [];
-    for (const screen of project.screens) {
+    const targetScreens = allScreens ? project.screens : selectedScreen ? [selectedScreen] : [];
+    for (const screen of targetScreens) {
       const result = createAutoWiring(screen, project.cabinets, controller, libraries);
       warnings.push(...result.warnings.filter((warning) => !warning.startsWith("Percorso scelto")));
-      result.runs.forEach((run) => {
-        runs.push({ ...run, portNumber: nextPort, color: portColor(nextPort - 1) });
-        nextPort += 1;
-      });
+      if (!result.runs.length && project.cabinets.some((cabinet) => cabinet.screenId === screen.id && !cabinet.excludeFromPixelmap)) {
+        setStatus(result.warnings.at(-1) ?? "Cablaggio non generato.");
+        return;
+      }
+      runs.push(...result.runs);
     }
-    const used = new Set(runs.map((run) => run.portNumber));
-    const backupPorts = Array.from({ length: controllerModel.ethernetPorts }, (_, index) => controllerModel.ethernetPorts - index).filter((port) => !used.has(port));
-    const configuredRuns = controller.mode.redundancy
-      ? assignAutomaticBackupPorts(runs, controllerModel.ethernetPorts, `${language === "en" ? "Second" : "Secondo"} ${controllerModel.name}`)
-      : runs;
+    const targetIds = new Set(project.cabinets.filter((cabinet) => targetScreens.some((screen) => screen.id === cabinet.screenId)).map((cabinet) => cabinet.id));
+    const merged = mergeAutomaticPortRuns(controller.portRuns, targetIds, runs, controllerModel.ethernetPorts,
+      controller.mode.redundancy, `${language === "en" ? "Second" : "Secondo"} ${controllerModel.name}`);
+    if (merged.error) {
+      setStatus(merged.error);
+      return;
+    }
+    const configuredRuns = merged.runs;
     const totalPixels = projectStats.activePixels;
     const capacity = calculateControllerCapacity(controllerModel, controller);
     if (totalPixels > capacity.totalCapacityPixels) warnings.push(`Pixel totali ${formatInt(totalPixels)} oltre il limite ${formatInt(capacity.totalCapacityPixels)}.`);
     if (runs.length > controllerModel.ethernetPorts) warnings.push(`Richieste ${runs.length} porte, disponibili ${controllerModel.ethernetPorts}.`);
-    if (controller.mode.redundancy && backupPorts.length < runs.length) warnings.push("Porte insufficienti per un backup interno completo; usare il secondo controller.");
+    if (controller.mode.redundancy && configuredRuns.some((run) => run.backupPortNumber === undefined)) warnings.push("Porte insufficienti per un backup interno completo; usare il secondo controller.");
     history.commit((current) => ({ ...current, controllers: current.controllers.map((item, index) => index === 0 ? { ...item, portRuns: configuredRuns } : item) }));
     setManualTracePort(undefined);
     setStatus(warnings.length ? warnings.at(-1)! : `Cablaggio creato su ${configuredRuns.length} porte`);
@@ -663,9 +785,21 @@ export default function App() {
     }));
   }
 
-  function autoPower(): void {
-    const lines = createAutomaticPowerLines(project.cabinets, libraries, project.electrical);
-    history.commit((current) => ({ ...current, powerLines: lines }));
+  function autoPower(allScreens = false): void {
+    const targetScreens = allScreens ? project.screens : selectedScreen ? [selectedScreen] : [];
+    const targetIds = new Set(project.cabinets.filter((cabinet) => targetScreens.some((screen) => screen.id === cabinet.screenId)).map((cabinet) => cabinet.id));
+    const retained = project.powerLines.map((line) => ({ ...line, cabinetIds: line.cabinetIds.filter((id) => !targetIds.has(id)) }))
+      .filter((line) => line.cabinetIds.length > 0);
+    const lines = createAutomaticPowerLines(project.cabinets.filter((cabinet) => targetIds.has(cabinet.id)), libraries, project.electrical, targetScreens);
+    const used = new Set(retained.map((line) => line.lineNumber));
+    let nextNumber = 1;
+    const generated = lines.map((line) => {
+      while (used.has(nextNumber)) nextNumber += 1;
+      const number = nextNumber++;
+      used.add(number);
+      return { ...line, lineNumber: number, color: portColor(number - 1) };
+    });
+    history.commit((current) => ({ ...current, powerLines: [...retained, ...generated].sort((a, b) => a.lineNumber - b.lineNumber) }));
     setManualPowerLine(undefined);
     setStatus(`Distribuzione elettrica: ${lines.length} linee`);
   }
@@ -886,37 +1020,15 @@ export default function App() {
     }));
   }
 
-  async function exportPng(kind: "master" | "screen"): Promise<void> {
+  async function exportBatch(kind: BatchExportKind): Promise<void> {
     try {
       setBusy(true);
-      if (kind === "screen" && !selectedScreen) throw new Error("Seleziona uno schermo.");
-      const rendered = kind === "master"
-        ? await renderMasterPixelmap(project, libraries)
-        : await renderScreenPixelmap(project, libraries, selectedScreen!);
-      const bytes = await canvasToPngBytes(rendered.canvas);
-      const name = versionedFilename(project, sanitizeFilename(rendered.label), "png");
-      const path = await saveBinary(bytes, name, "Esporta pixelmap PNG", ["png"], "image/png");
-      if (path) setStatus(`Pixelmap esportata: ${path.split("/").at(-1)}`);
-    } catch (error) {
-      setStatus(errorMessage(error));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function exportPdf(kind: "technical" | "wiring"): Promise<void> {
-    try {
-      setBusy(true);
-      const { createTechnicalPdf, createWiringPdf } = await import("./export/reports");
-      const bytes = kind === "technical"
-        ? createTechnicalPdf(project, libraries, language)
-        : createWiringPdf(project, libraries, language);
-      const suffix = kind === "technical"
-        ? language === "en" ? "Technical report" : "Relazione tecnica"
-        : language === "en" ? "Wiring" : "Cablaggi";
-      const name = versionedFilename(project, suffix, "pdf");
-      const path = await saveBinary(bytes, name, `${language === "en" ? "Export" : "Esporta"} ${suffix}`, ["pdf"], "application/pdf");
-      if (path) setStatus(`PDF esportato: ${path.split("/").at(-1)}`);
+      setStatus(language === "en" ? "Preparing export…" : "Preparazione export…");
+      const result = await prepareBatchExport(fullProject, libraries, exportScreenIds, kind, language,
+        (completed, total) => setStatus(`${language === "en" ? "Preparing export" : "Preparazione export"}: ${completed}/${total}`));
+      const path = await saveBinary(result.bytes, result.name, language === "en" ? "Export selected screens" : "Esporta schermi selezionati", [result.extension], result.mimeType);
+      if (path) setStatus(`${language === "en" ? "Exported screens" : "Schermi esportati"}: ${result.screenCount} — ${path.split("/").at(-1)}${result.skippedScreens ? ` (${result.skippedScreens} ${language === "en" ? "without active pixels, skipped" : "senza pixel attivi, esclusi"})` : ""}`);
+      else setStatus(language === "en" ? "Export cancelled." : "Export annullato.");
     } catch (error) {
       setStatus(errorMessage(error));
     } finally {
@@ -925,7 +1037,7 @@ export default function App() {
   }
 
   return (
-    <div className="app-shell" key={language} ref={appShell}>
+    <div className="app-shell" key={`${language}-${activeCanvas.id}`} ref={appShell}>
       <header className="topbar">
         <div className="brand">
           <div className="brand-mark"><span /><span /><span /></div>
@@ -971,8 +1083,28 @@ export default function App() {
       </nav>
 
       <main className="workspace">
+        <div className="canvas-tabs" role="tablist" aria-label="Canvas del progetto">
+          {canvases.map((canvas) => <button key={canvas.id} role="tab" aria-selected={canvas.id === activeCanvas.id}
+            className={canvas.id === activeCanvas.id ? "active" : ""} onClick={() => selectCanvas(canvas.id)}>
+            <span data-user-text>{canvas.name || "Canvas"}</span><small>{canvas.width}×{canvas.height}</small>
+          </button>)}
+          <button className="add-canvas" onClick={addCanvas}>+ Canvas</button>
+        </div>
         <div className="canvas-toolbar">
           <div className="toolbar-group"><span className="toolbar-label">Vista</span><strong>{panelLabel(panel)}</strong></div>
+          <div className="toolbar-group screen-view-controls">
+            <select aria-label="Vista schermi" value={isolatedScreen ? "selected" : "master"} onChange={(event) => {
+              setIsolatedScreen(event.target.value === "selected");
+              setSelectedCabinetId(undefined);
+              setSelectedCabinetIds([]);
+            }}>
+              <option value="selected">Solo schermo selezionato</option>
+              <option value="master">Canvas master · tutti</option>
+            </select>
+            <select aria-label="Schermo selezionato" value={selectedScreen?.id ?? ""} onChange={(event) => selectScreen(event.target.value)}>
+              {project.screens.map((screen) => <option key={screen.id} value={screen.id}>{screen.name}</option>)}
+            </select>
+          </div>
           <div className="toolbar-group"><button className={`tool-toggle ${snap ? "active" : ""}`} onClick={() => setSnap(!snap)}>Snap</button></div>
           <div className="toolbar-group">
             <button
@@ -1006,12 +1138,14 @@ export default function App() {
           viewMode={viewMode}
           zoom={zoom}
           selectedScreenId={selectedScreenId}
+          isolatedScreen={isolatedScreen}
           selectedCabinetId={selectedCabinetId}
           selectedCabinetIds={selectedCabinetIds}
           manualTracePort={manualTracePort}
           manualPowerLine={manualPowerLine}
           snap={snap}
-          onSelectScreen={setSelectedScreenId}
+          onSelectScreen={selectScreen}
+          onMoveScreen={moveScreen}
           onSelectCabinet={selectCabinet}
           onMoveCabinet={moveCabinet}
           onMoveSupportPlate={moveSupportPlate}
@@ -1028,6 +1162,13 @@ export default function App() {
         panel={panel}
         project={project}
         libraries={libraries}
+        canvases={canvases}
+        selectedCanvasId={activeCanvas.id}
+        onSelectCanvas={selectCanvas}
+        onAddCanvas={addCanvas}
+        onRenameCanvas={renameCanvas}
+        onDeleteCanvas={() => void deleteCanvas()}
+        onMoveScreenToCanvas={changeScreenCanvas}
         selectedScreenId={selectedScreenId}
         selectedCabinetId={selectedCabinetId}
         selectedCabinetIds={selectedCabinetIds}
@@ -1036,7 +1177,7 @@ export default function App() {
         onProjectChange={history.commit}
         onLibrariesChange={setLibraries}
         onResetLibraries={resetLibraries}
-        onSelectScreen={setSelectedScreenId}
+        onSelectScreen={selectScreen}
         onSelectCabinet={(id) => selectCabinet(id)}
         onSelectAllCabinetsInScreen={selectAllCabinetsInScreen}
         onClearCabinetSelection={() => selectCabinet(undefined)}
@@ -1048,6 +1189,7 @@ export default function App() {
         onShowBulk={() => setBulkOpen(true)}
         onAutoWire={autoWire}
         onAutoPower={autoPower}
+        onArrangeScreens={arrangeAllScreens}
         onAssignSelectedCabinetToPowerLine={assignSelectedCabinetToPowerLine}
         onActivateManualPowerTrace={activateManualPowerTrace}
         onFinishManualPowerTrace={finishManualPowerTrace}
@@ -1060,10 +1202,10 @@ export default function App() {
         onFinishManualTrace={finishManualTrace}
         onUndoManualTraceStep={undoManualTraceStep}
         onMoveCabinetInRun={moveCabinetInRun}
-        onExportMasterPng={() => void exportPng("master")}
-        onExportScreenPng={() => void exportPng("screen")}
-        onExportTechnicalPdf={() => void exportPdf("technical")}
-        onExportWiringPdf={() => void exportPdf("wiring")}
+        exportScreens={exportScreens}
+        exportScreenIds={exportScreenIds}
+        onExportSelection={setExportSelection}
+        onBatchExport={(kind) => void exportBatch(kind)}
         busy={busy}
       />
 

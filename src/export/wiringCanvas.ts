@@ -13,7 +13,7 @@ export function renderWiringCanvas(
   if (bounds.width <= 0 || bounds.height <= 0) {
     throw new Error("Lo schermo selezionato non contiene cabinet.");
   }
-  const scale = Math.max(1.25, Math.min(3, 1900 / Math.max(bounds.width, bounds.height)));
+  const scale = Math.min(4, 4200 / Math.max(bounds.width, bounds.height));
   const margin = 48;
   const footer = 80;
   const canvas = document.createElement("canvas");
@@ -55,28 +55,35 @@ export function renderWiringCanvas(
     context.lineWidth = 1;
     context.strokeRect(x, y, size.width * scale, size.height * scale);
     context.fillStyle = "#13202b";
-    context.font = `600 ${Math.max(10, Math.min(17, 9 * scale))}px Arial, sans-serif`;
     context.textBaseline = "top";
+    const cellWidth = size.width * scale;
+    const cellHeight = size.height * scale;
+    const padding = Math.max(4, Math.min(cellWidth, cellHeight) * 0.025);
+    const primaryFont = Math.min(cellWidth * 0.23, cellHeight * 0.20);
+    if (assignment) {
+      context.font = `900 ${primaryFont}px Arial, sans-serif`;
+      context.fillText(`${mode === "data" ? "P" : "L"}-${assignment.number}`, x + padding, y + padding, cellWidth - padding * 2);
+    }
+    const detailFont = Math.min(cellWidth * 0.07, cellHeight * 0.055);
+    context.font = `600 ${detailFont}px Arial, sans-serif`;
     const lines = assignment
       ? mode === "data" ? [
-          `C-1`,
-          `P-${assignment.number}`,
-          `RV-${assignment.order + 1}`,
+          `C-1 / RV-${assignment.order + 1}`,
           `A-${cabinet.rotation}deg`,
           `WH-${size.width}x${size.height}`,
         ] : [
-          `L-${assignment.number}`,
           `ORD-${assignment.order + 1}`,
           `${cabinet.row},${cabinet.column}`,
           `${model.powerMaxW}W max`,
         ]
       : [`${cabinet.row},${cabinet.column}`, language === "en" ? "UNASSIGNED" : "NON ASSEGNATO"];
-    lines.forEach((line, index) => context.fillText(line, x + 4, y + 3 + index * Math.max(11, 10 * scale)));
+    const detailY = assignment ? y + cellHeight * 0.78 : y + padding;
+    lines.forEach((line, index) => context.fillText(line, x + padding, detailY + index * detailFont * 1.2, cellWidth - padding * 2));
   }
 
   const connectionRuns = mode === "data"
     ? (controller?.portRuns ?? []).map((run) => ({ number: run.portNumber, ids: run.cabinetIds, color: "#063cff" }))
-    : project.powerLines.map((line) => ({ number: line.lineNumber, ids: line.cabinetIds, color: line.color }));
+    : project.powerLines.map((line) => ({ number: line.lineNumber, ids: line.cabinetIds, color: "#a83c0b" }));
   connectionRuns.forEach((run) => {
     const points = run.ids
       .map((id) => {
@@ -84,29 +91,30 @@ export function renderWiringCanvas(
         const model = cabinet ? modelById.get(cabinet.modelId) : undefined;
         if (!cabinet || !model || cabinet.screenId !== screen.id) return undefined;
         const center = cabinetPixelCenter(cabinet, model);
-        return { x: toX(center.x), y: toY(center.y) };
+        const size = cabinetPixelSize(cabinet, model);
+        return { x: toX(center.x), y: toY(center.y), cellSize: Math.min(size.width, size.height) * scale };
       })
-      .filter((point): point is { x: number; y: number } => point !== undefined);
+      .filter((point): point is { x: number; y: number; cellSize: number } => point !== undefined);
     if (points.length === 0) return;
     context.fillStyle = run.color;
     context.lineCap = "round";
     context.lineJoin = "round";
-    const lineWidth = Math.max(6, 3 * scale);
+    const lineWidth = Math.max(4, Math.min(...points.map((point) => point.cellSize)) * 0.025);
     tracePath(context, points);
     context.strokeStyle = "rgba(255,255,255,0.95)";
-    context.lineWidth = lineWidth + Math.max(4, 2 * scale);
+    context.lineWidth = lineWidth * 2;
     context.stroke();
     tracePath(context, points);
     context.strokeStyle = run.color;
     context.lineWidth = lineWidth;
     context.stroke();
-    points.slice(1).forEach((point, index) => drawArrow(context, points[index], point, scale));
-    drawEndpoint(context, points[0], "#32f54f", mode === "data" ? String(run.number) : `L${run.number}`, scale);
-    drawEndpoint(context, points.at(-1)!, "#ff173d", "", scale);
+    points.slice(1).forEach((point, index) => drawArrow(context, points[index], point, Math.min(points[index].cellSize, point.cellSize)));
+    if (points.length > 1) drawEndpoint(context, points.at(-1)!, "#ff173d", "", points.at(-1)!.cellSize);
+    drawEndpoint(context, points[0], "#32f54f", `${mode === "data" ? "P" : "L"}-${run.number}`, points[0].cellSize);
   });
 
   context.fillStyle = "#121a22";
-  context.font = "700 22px Arial, sans-serif";
+  context.font = "700 30px Arial, sans-serif";
   context.fillText(`${mode === "data" ? controller?.name ?? "Controller" : language === "en" ? "Power distribution" : "Distribuzione elettrica"} - ${screen.name}`, margin, canvas.height - footer + 18);
   context.font = "13px Arial, sans-serif";
   context.fillText(`Front View - ${mode === "data" ? language === "en" ? "main data route" : "percorso main dati" : language === "en" ? "power lines" : "linee elettriche"}`, margin, canvas.height - footer + 48);
@@ -118,19 +126,25 @@ function drawEndpoint(
   point: { x: number; y: number },
   color: string,
   label: string,
-  scale: number,
+  cellSize: number,
 ): void {
-  const radius = Math.max(7, 5 * scale);
+  const fontSize = cellSize * 0.18;
+  context.font = `900 ${fontSize}px Arial, sans-serif`;
+  const radius = label ? cellSize * 0.24 : Math.max(4, cellSize * 0.055);
+  const textWidth = label ? context.measureText(label).width : 0;
+  if (textWidth > radius * 1.75) context.font = `900 ${fontSize * radius * 1.75 / textWidth}px Arial, sans-serif`;
   context.fillStyle = color;
-  context.strokeStyle = "#003cff";
-  context.lineWidth = 1.5;
+  context.strokeStyle = "#fff";
+  context.lineWidth = Math.max(3, cellSize * 0.018);
   context.beginPath();
   context.arc(point.x, point.y, radius, 0, Math.PI * 2);
   context.fill();
   context.stroke();
+  context.strokeStyle = "#13202b";
+  context.lineWidth = Math.max(1, cellSize * 0.006);
+  context.stroke();
   if (label) {
-    context.fillStyle = "#003cff";
-    context.font = `700 ${Math.max(10, 8 * scale)}px Arial, sans-serif`;
+    context.fillStyle = "#10212d";
     context.textAlign = "center";
     context.textBaseline = "middle";
     context.fillText(label, point.x, point.y);
@@ -142,10 +156,10 @@ function drawArrow(
   context: CanvasRenderingContext2D,
   from: { x: number; y: number },
   to: { x: number; y: number },
-  scale: number,
+  cellSize: number,
 ): void {
   const angle = Math.atan2(to.y - from.y, to.x - from.x);
-  const size = Math.max(12, 7 * scale);
+  const size = Math.max(8, cellSize * 0.10);
   const x = from.x + (to.x - from.x) * 0.68;
   const y = from.y + (to.y - from.y) * 0.68;
   context.beginPath();
@@ -154,7 +168,7 @@ function drawArrow(
   context.lineTo(x - size * Math.cos(angle + Math.PI / 6), y - size * Math.sin(angle + Math.PI / 6));
   context.closePath();
   context.strokeStyle = "#ffffff";
-  context.lineWidth = Math.max(2.5, 1.25 * scale);
+  context.lineWidth = Math.max(2, cellSize * 0.012);
   context.stroke();
   context.fill();
 }

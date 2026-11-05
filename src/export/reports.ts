@@ -8,19 +8,31 @@ import type { AppLibraries, LedwallProject } from "../domain/types";
 import { renderWiringCanvas } from "./wiringCanvas";
 import { renderRiggingCanvas } from "./riggingCanvas";
 import { numberLocale, translateText, type AppLanguage } from "../i18n";
+import { canvasProject, projectCanvases } from "../domain/canvases";
+import { selectedCanvasProjects } from "./selection";
+import { renderScreenPixelmap } from "./pixelmap";
 
 export function createTechnicalPdf(
   project: LedwallProject,
   libraries: AppLibraries,
   language: AppLanguage = "it",
+  canvasId?: string,
 ): Uint8Array {
+  project = canvasProject(project, canvasId);
   const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
   localizePdf(pdf, language);
+  appendTechnicalReport(pdf, project, libraries, language);
+  addPageNumbers(pdf);
+  return new Uint8Array(pdf.output("arraybuffer"));
+}
+
+function appendTechnicalReport(pdf: jsPDF, project: LedwallProject, libraries: AppLibraries, language: AppLanguage): void {
+  const cabinetIds = new Set(project.cabinets.map((cabinet) => cabinet.id));
   const totals = calculateProjectTotals(project, libraries);
   const powerMetrics = calculatePowerLineMetrics(project, libraries);
-  let y = drawHeader(pdf, project, "RELAZIONE TECNICA", false);
+  let y = drawHeader(pdf, project, `RELAZIONE TECNICA - ${projectCanvases(project)[0].name}`, false);
 
-  y = drawSectionTitle(pdf, "Riepilogo progetto", y);
+  y = drawSectionTitle(pdf, "Riepilogo canvas", y);
   y = drawKeyValues(
     pdf,
     [
@@ -66,7 +78,7 @@ export function createTechnicalPdf(
     for (const metric of portMetrics) {
       y = ensureSpace(pdf, project, y, 7);
       pdf.setFontSize(8.5);
-      pdf.text(`Porta ${metric.run.portNumber}: ${metric.run.cabinetIds.length} cabinet`, 18, y);
+      pdf.text(`Porta ${metric.run.portNumber}: ${metric.run.cabinetIds.filter((id) => cabinetIds.has(id)).length} cabinet`, 18, y);
       y += 4.5;
     }
   }
@@ -78,7 +90,7 @@ export function createTechnicalPdf(
     y = ensureSpace(pdf, project, y, 7);
     pdf.setFontSize(8.5);
     pdf.text(
-      `Linea ${metric.line.lineNumber}: ${metric.line.cabinetIds.length} cabinet - ` +
+      `Linea ${metric.line.lineNumber}: ${metric.line.cabinetIds.filter((id) => cabinetIds.has(id)).length} cabinet - ` +
         `${formatDecimal(metric.maxW / 1000)} kW massimo - ` +
         `${formatDecimal(metric.averageW / 1000)} kW medio`,
       18,
@@ -145,7 +157,7 @@ export function createTechnicalPdf(
     const screenCabinets = project.cabinets.filter((cabinet) => cabinet.screenId === screen.id);
     if (!screenCabinets.length) return;
     pdf.addPage("a4", "landscape");
-    drawHeader(pdf, project, `RIGGING - ${screen.name}`, false);
+    drawHeader(pdf, project, `RIGGING - ${projectCanvases(project)[0].name} / ${screen.name}`, false);
     const canvas = renderRiggingCanvas(project, libraries, screen, language);
     const maxWidth = 269;
     const maxHeight = 135;
@@ -178,40 +190,136 @@ export function createTechnicalPdf(
       });
     }
   });
-  addPageNumbers(pdf);
-  return new Uint8Array(pdf.output("arraybuffer"));
 }
 
 export function createWiringPdf(
   project: LedwallProject,
   libraries: AppLibraries,
   language: AppLanguage = "it",
+  canvasId?: string,
 ): Uint8Array {
+  project = canvasProject(project, canvasId);
   const pdf = new jsPDF({ orientation: "landscape", unit: "mm", format: "a3" });
   localizePdf(pdf, language);
+  appendWiringReport(pdf, project, libraries, language);
+  addPageNumbers(pdf);
+  return new Uint8Array(pdf.output("arraybuffer"));
+}
+
+function appendWiringReport(pdf: jsPDF, project: LedwallProject, libraries: AppLibraries, language: AppLanguage): void {
   let pageIndex = 0;
   project.screens.forEach((screen) => {
     const screenCabinets = project.cabinets.filter((cabinet) => cabinet.screenId === screen.id);
     (["data", "power"] as const).forEach((mode) => {
       if (pageIndex > 0) pdf.addPage("a3", "landscape");
       pageIndex += 1;
-      drawHeader(pdf, project, `${mode === "data" ? "CABLAGGIO DATI" : "CABLAGGIO ELETTRICO"} - ${screen.name}`);
+      drawHeader(pdf, project, `${mode === "data" ? "CABLAGGIO DATI" : "CABLAGGIO ELETTRICO"} - ${projectCanvases(project)[0].name} / ${screen.name}`);
       if (!screenCabinets.length) {
         pdf.setFontSize(14);
         pdf.text("Nessun cabinet nello schermo.", 18, 40);
         return;
       }
       const canvas = renderWiringCanvas(project, libraries, screen, mode, language);
+      const legend = wiringLegend(project, libraries, screen.id, mode, language);
+      pdf.setFont("helvetica", "normal");
+      pdf.setFontSize(8);
+      const blocks = legend.rows.map((row) => pdf.splitTextToSize(row, 184) as string[]);
+      const rowsPerColumn = Math.ceil(blocks.length / 2);
+      const heightOf = (items: string[][]) => items.reduce((total, lines) => total + lines.length * 4 + 3, 8);
+      const legendHeight = Math.max(heightOf(blocks.slice(0, rowsPerColumn)), heightOf(blocks.slice(rowsPerColumn)));
+      const separateLegend = legendHeight > 160;
       const maxWidth = 388;
-      const maxHeight = 245;
+      const maxHeight = separateLegend ? 235 : 237 - legendHeight;
       const ratio = Math.min(maxWidth / canvas.width, maxHeight / canvas.height);
       const imageWidth = canvas.width * ratio;
       const imageHeight = canvas.height * ratio;
       pdf.addImage(canvas.toDataURL("image/png"), "PNG", 15 + (maxWidth - imageWidth) / 2, 30, imageWidth, imageHeight, undefined, "FAST");
-      if (mode === "data") drawBackupTable(pdf, project, libraries, 15, 282);
-      else drawPowerTable(pdf, project, libraries, 15, 282);
+      if (!separateLegend) {
+        const legendY = 30 + imageHeight + 8;
+        pdf.setFont("helvetica", "bold");
+        pdf.setFontSize(9);
+        pdf.text(legend.heading, 15, legendY);
+        pdf.setFont("helvetica", "normal");
+        pdf.setFontSize(8);
+        for (let column = 0; column < 2; column += 1) {
+          let rowY = legendY + 6;
+          blocks.slice(column * rowsPerColumn, (column + 1) * rowsPerColumn).forEach((lines) => {
+            pdf.text(lines, 15 + column * 194, rowY, { lineHeightFactor: 1.4 });
+            rowY += lines.length * 4 + 3;
+          });
+        }
+      } else {
+        let legendY = 290;
+        legend.rows.forEach((row) => {
+          const lines = pdf.splitTextToSize(row, 388) as string[];
+          if (legendY + lines.length * 4 > 281) {
+            pdf.addPage("a3", "landscape");
+            pageIndex += 1;
+            drawHeader(pdf, project, legend.heading);
+            legendY = 37;
+            pdf.setFont("helvetica", "normal");
+            pdf.setFontSize(8);
+          }
+          pdf.text(lines, 15, legendY, { lineHeightFactor: 1.4 });
+          legendY += lines.length * 4 + 3;
+        });
+      }
     });
   });
+}
+
+export function createTechnicalBatchPdf(project: LedwallProject, libraries: AppLibraries, screenIds: string[], language: AppLanguage = "it"): Uint8Array {
+  const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+  localizePdf(pdf, language);
+  selectedCanvasProjects(project, screenIds).forEach((scope, index) => {
+    if (index) pdf.addPage("a4", "portrait");
+    appendTechnicalReport(pdf, scope, libraries, language);
+  });
+  addPageNumbers(pdf);
+  return new Uint8Array(pdf.output("arraybuffer"));
+}
+
+export function createWiringBatchPdf(project: LedwallProject, libraries: AppLibraries, screenIds: string[], language: AppLanguage = "it"): Uint8Array {
+  const pdf = new jsPDF({ orientation: "landscape", unit: "mm", format: "a3" });
+  localizePdf(pdf, language);
+  selectedCanvasProjects(project, screenIds).forEach((scope, index) => {
+    if (index) pdf.addPage("a3", "landscape");
+    appendWiringReport(pdf, scope, libraries, language);
+  });
+  addPageNumbers(pdf);
+  return new Uint8Array(pdf.output("arraybuffer"));
+}
+
+export async function createPixelmapPdf(project: LedwallProject, libraries: AppLibraries, screenIds: string[], language: AppLanguage = "it", onProgress?: (completed: number, total: number) => void): Promise<Uint8Array> {
+  const scopes = selectedCanvasProjects(project, screenIds);
+  const total = scopes.reduce((sum, scope) => sum + scope.screens.length, 0);
+  const pdf = new jsPDF({ orientation: "landscape", unit: "mm", format: "a3" });
+  localizePdf(pdf, language);
+  let completed = 0;
+  for (const scope of scopes) {
+    for (const screen of scope.screens) {
+      const rendered = await renderScreenPixelmap(scope, libraries, screen);
+      const orientation = rendered.canvas.width >= rendered.canvas.height ? "landscape" : "portrait";
+      if (completed) pdf.addPage("a3", orientation);
+      else if (orientation === "portrait") { pdf.deletePage(1); pdf.addPage("a3", orientation); }
+      drawHeader(pdf, scope, `PIXELMAP - ${projectCanvases(scope)[0].name} / ${screen.name}`, false);
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      const maxWidth = pageWidth - 30;
+      const maxHeight = pageHeight - 65;
+      const ratio = Math.min(maxWidth / rendered.canvas.width, maxHeight / rendered.canvas.height);
+      const width = rendered.canvas.width * ratio;
+      const height = rendered.canvas.height * ratio;
+      pdf.addImage(rendered.canvas.toDataURL("image/png"), "PNG", (pageWidth - width) / 2, 33 + (maxHeight - height) / 2, width, height, undefined, "FAST");
+      pdf.setFont("helvetica", "normal");
+      pdf.setFontSize(10);
+      pdf.text(`${rendered.canvas.width} x ${rendered.canvas.height} px - Canvas X ${screen.canvasX}, Y ${screen.canvasY}`, 15, pageHeight - 20);
+      rendered.canvas.width = 1;
+      rendered.canvas.height = 1;
+      onProgress?.(++completed, total);
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    }
+  }
   addPageNumbers(pdf);
   return new Uint8Array(pdf.output("arraybuffer"));
 }
@@ -228,52 +336,37 @@ function localizePdf(pdf: jsPDF, language: AppLanguage): void {
     )) as typeof pdf.text;
 }
 
-function drawPowerTable(
-  pdf: jsPDF,
+function wiringLegend(
   project: LedwallProject,
   libraries: AppLibraries,
-  x: number,
-  y: number,
-): void {
-  const metrics = calculatePowerLineMetrics(project, libraries);
-  pdf.setFont("helvetica", "bold");
-  pdf.setFontSize(9);
-  pdf.text(`Linee elettriche - ${project.electrical.voltageV} V monofase`, x, y);
-  pdf.setFont("helvetica", "normal");
-  pdf.setFontSize(7.5);
-  metrics.slice(0, 8).forEach((metric, index) => pdf.text(
-    `L-${metric.line.lineNumber}: ${formatInt(metric.maxW)} W max - ${formatDecimal(metric.maxA)} A - ${formatDecimal(metric.utilizationPercent)}% - ${metric.valid ? "OK" : "OLTRE LIMITE"}`,
-    x,
-    y + 5 + index * 4,
-  ));
-}
-
-function drawBackupTable(
-  pdf: jsPDF,
-  project: LedwallProject,
-  libraries: AppLibraries,
-  x: number,
-  y: number,
-): void {
+  screenId: string,
+  mode: "data" | "power",
+  language: AppLanguage,
+): { heading: string; rows: string[] } {
+  const screenIds = new Set(project.cabinets.filter((cabinet) => cabinet.screenId === screenId).map((cabinet) => cabinet.id));
+  if (mode === "power") {
+    return {
+      heading: language === "en" ? `Power lines - ${project.electrical.voltageV} V single-phase` : `Linee elettriche - ${project.electrical.voltageV} V monofase`,
+      rows: calculatePowerLineMetrics(project, libraries).filter((metric) => metric.line.cabinetIds.some((id) => screenIds.has(id))).map((metric) =>
+        `L-${metric.line.lineNumber}: ${formatDecimal(metric.maxW / 1000)} kW max - ${formatDecimal(metric.maxA)} A - ${formatDecimal(metric.utilizationPercent)}% - ${metric.valid ? "OK" : language === "en" ? "OVER LIMIT" : "OLTRE LIMITE"}`,
+      ),
+    };
+  }
   const controller = project.controllers[0];
   const model = libraries.controllers.find((item) => item.id === controller?.modelId);
-  pdf.setFont("helvetica", "bold");
-  pdf.setFontSize(9);
-  pdf.text(`Backup - ${controller?.name ?? "N/D"} (${model?.name ?? "N/D"})`, x, y);
-  pdf.setFont("helvetica", "normal");
-  pdf.setFontSize(7.5);
-  const rows = controller?.portRuns.map(
+  const metrics = controller ? calculatePortMetrics(project, libraries, controller) : [];
+  const rows = controller?.portRuns.filter((run) => run.cabinetIds.some((id) => screenIds.has(id))).map(
     (run) => {
-      const metric = calculatePortMetrics(project, libraries, controller).find((item) => item.run.id === run.id);
+      const metric = metrics.find((item) => item.run.id === run.id);
       const load = metric
-        ? ` | carico ${formatInt(metric.loadingPixels)} px (${formatDecimal(metric.utilizationPercent)}%` +
-          `${metric.virtualPixels ? `, ${formatInt(metric.virtualPixels)} virtuali` : ""})`
+        ? ` | ${language === "en" ? "load" : "carico"} ${formatInt(metric.loadingPixels)} px (${formatDecimal(metric.utilizationPercent)}%` +
+          `${metric.virtualPixels ? `, ${formatInt(metric.virtualPixels)} ${language === "en" ? "virtual" : "virtuali"}` : ""})`
         : "";
-      return `Main P-${run.portNumber} -> backup interno P-${run.backupPortNumber ?? "N/D"} | ` +
-        `${run.backupControllerName ?? "backup controller non definito"}${load}`;
+      return `Main P-${run.portNumber} -> ${language === "en" ? "internal backup" : "backup interno"} P-${run.backupPortNumber ?? (language === "en" ? "N/A" : "N/D")} | ` +
+        `${run.backupControllerName ?? (language === "en" ? "backup controller not specified" : "backup controller non definito")}${load}`;
     },
   );
-  (rows ?? []).slice(0, 8).forEach((row, index) => pdf.text(row, x, y + 5 + index * 4));
+  return { heading: `Backup - ${controller?.name ?? "N/D"} (${model?.name ?? "N/D"})`, rows: rows ?? [] };
 }
 
 function drawHeader(
@@ -288,6 +381,7 @@ function drawHeader(
   pdf.setTextColor(255, 255, 255);
   pdf.setFont("helvetica", "bold");
   pdf.setFontSize(16);
+  pdf.setFontSize(Math.min(16, 16 * (pageWidth - 24) / Math.max(1, pdf.getTextWidth(title))));
   pdf.text(title.toUpperCase(), 14, 10);
   pdf.setFontSize(8);
   pdf.setFont("helvetica", "normal");
@@ -337,7 +431,7 @@ function drawKeyValues(pdf: jsPDF, entries: [string, string][], y: number): numb
 function ensureSpace(pdf: jsPDF, project: LedwallProject, y: number, required: number): number {
   if (y + required < pdf.internal.pageSize.getHeight() - 16) return y;
   pdf.addPage();
-  return drawHeader(pdf, project, "RELAZIONE TECNICA", false);
+  return drawHeader(pdf, project, `RELAZIONE TECNICA - ${projectCanvases(project)[0].name}`, false);
 }
 
 function addPageNumbers(pdf: jsPDF): void {

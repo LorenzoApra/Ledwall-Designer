@@ -23,6 +23,62 @@ export function numberLocale(): string {
 }
 
 const english: Record<string, string> = {
+  "Schermi da esportare": "Screens to export",
+  "Tutti": "All", "Nessuno": "None",
+  "Solo questo canvas": "This canvas only",
+  "Solo strutturale": "Structural only",
+  "Pixelmap PDF e PNG": "Pixelmap PDF and PNG",
+  "PDF + PNG pixelmap": "Pixelmap PDF + PNG",
+  "PDF pixelmap": "Pixelmap PDF", "PNG schermi": "Screen PNGs", "PNG canvas": "Canvas PNGs",
+  "La selezione vale per tutti gli export, anche tra canvas diversi. Le pixelmap escludono gli schermi senza pixel attivi.": "The selection applies to all exports, including across canvases. Pixelmaps skip screens without active pixels.",
+  "Un PDF unico e PNG pixel-to-pixel. Più PNG o PDF + PNG vengono salvati in un solo ZIP. I PNG canvas mantengono posizioni e dimensioni originali.": "One combined PDF and pixel-to-pixel PNGs. Multiple PNGs or PDF + PNG are saved in a single ZIP. Canvas PNGs preserve original positions and dimensions.",
+  "Seleziona almeno uno schermo con cabinet.": "Select at least one screen with cabinets.",
+  "Gli schermi selezionati non hanno cabinet attivi nella pixelmap.": "The selected screens have no active pixelmap cabinets.",
+  "Riepilogo canvas": "Canvas summary",
+  "Stato canvas": "Canvas status",
+  "Canvas del progetto": "Project canvases",
+  "Canvas selezionato": "Selected canvas",
+  "Nome canvas": "Canvas name",
+  "Elimina canvas": "Delete canvas",
+  "Ogni canvas ha dimensioni, schermi, controller e cablaggi indipendenti. Puoi affiancare più schermi sullo stesso canvas.":
+    "Each canvas has independent dimensions, screens, controllers and wiring. You can arrange multiple screens on the same canvas.",
+  "Gli export riguardano solo il canvas selezionato:": "Exports include only the selected canvas:",
+  "Il file contiene canvas non validi.": "The file contains invalid canvases.",
+  "Canvas dello schermo": "Screen canvas",
+  "Il percorso dei cavi viene mantenuto; porte e circuiti vengono assegnati nel canvas di destinazione.":
+    "Cable routes are preserved; ports and circuits are allocated on the destination canvas.",
+  "Il controller del canvas di destinazione non è disponibile.": "The destination canvas controller is unavailable.",
+  "Il cablaggio supera la capacità del controller di destinazione. Modifica il controller o il percorso prima di spostare lo schermo.":
+    "Wiring exceeds the destination controller capacity. Adjust the controller or route before moving the screen.",
+  "Le linee elettriche superano il limite del canvas di destinazione. Modifica il limite o il cablaggio prima di spostare lo schermo.":
+    "Power lines exceed the destination canvas limit. Adjust the limit or wiring before moving the screen.",
+  "Linea": "Line", "Porta": "Port",
+  "Solo schermo selezionato": "Selected screen only",
+  "Canvas master · tutti": "Master canvas · all",
+  "Vista schermi": "Screen view",
+  "Affianca schermi nel canvas": "Arrange screens on canvas",
+  "Usa “Solo schermo selezionato” per modificare uno schermo. Nel canvas master trascina il nome per spostarlo.":
+    "Use “Selected screen only” to edit one screen. Drag its name on the master canvas to move it.",
+  "Trascina per spostare lo schermo nel canvas master": "Drag to move the screen on the master canvas",
+  "Pattern di cablaggio": "Wiring pattern",
+  "Il punto giallo indica il primo cabinet. Il percorso continua fino al limite della porta o della linea.":
+    "The yellow dot marks the first cabinet. The route continues until the port or circuit reaches its capacity.",
+  "Righe · alto sinistra": "Rows · top left",
+  "Colonne · alto sinistra": "Columns · top left",
+  "Righe · alto destra": "Rows · top right",
+  "Colonne · alto destra": "Columns · top right",
+  "Righe · basso sinistra": "Rows · bottom left",
+  "Colonne · basso sinistra": "Columns · bottom left",
+  "Righe · basso destra": "Rows · bottom right",
+  "Colonne · basso destra": "Columns · bottom right",
+  "Applica a": "Apply to",
+  "Tutti gli schermi": "All screens",
+  "Ogni schermo usa il proprio pattern. Le linee non collegano schermi diversi.":
+    "Each screen uses its own pattern. Routes do not connect different screens.",
+  "Schermi affiancati nel canvas master.": "Screens arranged on the master canvas.",
+  "Schermo fuori dal canvas master: riposizionalo o amplia il canvas.":
+    "Screen outside the master canvas: move it or enlarge the canvas.",
+  "Cablaggio non generato.": "Wiring could not be generated.",
   "Nuovo": "New", "Apri": "Open", "Salva": "Save", "Salva con nome": "Save as",
   "Non salvato": "Unsaved", "Annulla": "Cancel", "Ripristina": "Restore",
   "Progetto": "Project", "Disegno": "Design", "Dati": "Data", "Elettrico": "Electrical",
@@ -221,6 +277,10 @@ export function translateText(value: string, language: AppLanguage): string {
     return leading + english[core.slice(0, -1)] + ":" + trailing;
   }
   const patterns: [RegExp, string][] = [
+    [/^RELAZIONE TECNICA - (.+)$/, "TECHNICAL REPORT - $1"],
+    [/^Canvas creato: (.+)$/, "Canvas created: $1"],
+    [/^Canvas eliminato: (.+)$/, "Canvas deleted: $1"],
+    [/^Schermo spostato nel canvas: (.+)$/, "Screen moved to canvas: $1"],
     [/^Selezione \((\d+)\)$/, "Selection ($1)"],
     [/^Linee \((\d+)\)$/, "Lines ($1)"],
     [/^Elimina (\d*) cabinet$/, "Delete $1 cabinets"],
@@ -298,6 +358,7 @@ export function translateText(value: string, language: AppLanguage): string {
     [/^(\d+) cabinet rimossi dalla porta dati$/, "$1 cabinets removed from the data port"],
     [/^(\d+) cabinet assegnati a P-(\d+); traccia attiva$/, "$1 cabinets assigned to P-$2; trace active"],
     [/^Nessuna porta libera su (.+)$/, "No free ports on $1"],
+    [/^Servono (\d+) porte libere, disponibili (\d+)\.$/, "$1 free ports required, $2 available."],
     [/^Cabinet aggiunto alla traccia P-(\d+)$/, "Cabinet added to trace P-$1"],
     [/^Traccia P-(\d+) attiva: trascina per continuare il percorso$/,
       "Trace P-$1 active: drag to continue the route"],
@@ -339,7 +400,7 @@ export function observeTranslations(root: HTMLElement, language: AppLanguage): (
     if (node.nodeType === Node.TEXT_NODE) {
       const text = node as Text;
       const parent = text.parentElement;
-      if (!parent || parent.closest("script, style, textarea, [contenteditable], .project-heading strong, .screen-list-item span")) return;
+      if (!parent || parent.closest("script, style, textarea, [contenteditable], [data-user-text], .project-heading strong, .screen-list-item span")) return;
       const current = text.nodeValue ?? "";
       if (!originalText.has(text) || current !== translatedText.get(text)) originalText.set(text, current);
       const translated = translateText(originalText.get(text) ?? current, language);

@@ -1,6 +1,7 @@
 export type Rotation = 0 | 90 | 180 | 270;
 export type BitDepth = 8 | 10 | 12;
 export type ViewMode = "design" | "data" | "power" | "pixelmap" | "weight";
+export type CablingPattern = "rows-tl" | "columns-tl" | "rows-tr" | "columns-tr" | "rows-bl" | "columns-bl" | "rows-br" | "columns-br";
 
 export interface CabinetModel {
   id: string;
@@ -74,6 +75,7 @@ export interface PortRun {
 
 export interface ControllerInstance {
   id: string;
+  canvasId?: string;
   modelId: string;
   name: string;
   mode: ControllerMode;
@@ -160,6 +162,7 @@ export interface FlybarInstance {
 
 export interface LedScreen {
   id: string;
+  canvasId?: string;
   name: string;
   canvasX: number;
   canvasY: number;
@@ -168,10 +171,13 @@ export interface LedScreen {
   suspensionPoints: SuspensionPoint[];
   supportPlates: SupportPlate[];
   flybars: FlybarInstance[];
+  dataPattern?: CablingPattern;
+  powerPattern?: CablingPattern;
 }
 
 export interface PowerLine {
   id: string;
+  canvasId?: string;
   lineNumber: number;
   cabinetIds: string[];
   color: string;
@@ -204,12 +210,22 @@ export interface ProjectMetadata {
   logoDataUrl?: string;
 }
 
+export interface ProjectCanvas {
+  id: string;
+  name: string;
+  width: number;
+  height: number;
+  electrical: ElectricalSettings;
+  rigging: RiggingSettings;
+}
+
 export interface LedwallProject {
-  schemaVersion: 1;
+  schemaVersion: 1 | 2;
   id: string;
   metadata: ProjectMetadata;
   canvasWidth: number;
   canvasHeight: number;
+  canvases?: ProjectCanvas[];
   screens: LedScreen[];
   cabinets: CabinetInstance[];
   controllers: ControllerInstance[];

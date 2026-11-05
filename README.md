@@ -59,6 +59,38 @@ Do not disable system-wide protection to install the app.
 Use the **Language** menu in the top bar to switch between **Italiano** and
 **English**. The choice is saved locally and also applies to exported PDFs.
 
+A project can contain multiple independent canvases. Use **+ Canvas** and the tabs
+above the drawing to create or switch canvases. Each canvas has its own name,
+resolution, screens, controller ports, power circuits and rigging settings.
+Multiple screens can share one canvas. Use **Screen canvas** to transfer a screen
+and its cable routes; the transfer is refused if the destination cannot support
+the wiring. Saving the `.lwd` project keeps every canvas together.
+
+In **Output** or **Pixelmap**, choose **All**, **None**, **This canvas only**, or
+individual screens across any canvas. One click exports the selection: a combined
+pixelmap PDF, native pixel-to-pixel screen PNGs, canvas PNGs, or **PDF + PNG** together.
+Multiple PNGs and PDF + PNG bundles use one ZIP and one save dialog; a single PNG
+is saved directly. Canvas PNGs retain the original canvas dimensions and screen
+positions, leaving unselected screens black. Structural-only screens are skipped
+in pixelmaps but remain available in technical and wiring reports. Technical and
+wiring PDFs also use the same selection and combine their pages in one document.
+Names include the project revision, canvas and screen where relevant; duplicate
+names are kept as separate files.
+
+Existing single-canvas projects open as **CANVAS 1**, preserving screen positions,
+wiring and backups. New saves use project format version 2.
+
+Use **Selected screen only** to edit one screen even when screens overlap on the
+master canvas. New screens are placed in free space; on the master view, drag a
+screen's name to move it or use **Arrange screens on canvas**. The master canvas
+size is preserved: screens that do not fit can still be edited individually.
+
+Each screen stores separate data and power wiring patterns. Choose one of the
+eight serpentine routes (rows or columns, starting from any corner), then apply
+automatic wiring to the selected screen or to all screens. Routes split at port
+or circuit capacity and never join different screens. Wiring PDFs use large
+port/circuit labels and show the complete legend for the screen.
+
 1. **Progetto** (Project): enter the project/event name, revision and master canvas size.
 2. **Librerie** (Libraries): check your cabinet dimensions, pixel resolution,
    weight and maximum/average power; select the appropriate controller model.

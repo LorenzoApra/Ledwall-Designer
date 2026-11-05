@@ -79,11 +79,11 @@ export function BulkGridModal({
             </select>
           </Field>
           <div className="two-columns">
-            <Field label="Righe">
-              <input type="number" min="1" max="200" value={values.rows} onChange={(event) => setValues({ ...values, rows: Number(event.target.value) })} />
-            </Field>
             <Field label="Colonne">
               <input type="number" min="1" max="200" value={values.columns} onChange={(event) => setValues({ ...values, columns: Number(event.target.value) })} />
+            </Field>
+            <Field label="Righe">
+              <input type="number" min="1" max="200" value={values.rows} onChange={(event) => setValues({ ...values, rows: Number(event.target.value) })} />
             </Field>
           </div>
           <Field label="Rotazione">
